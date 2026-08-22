@@ -1,0 +1,17 @@
+# agent & tooling local state
+.claude/
+.vscode/
+trash/
+Records/
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+build/
+
+# os
+.DS_Store
+Thumbs.db
