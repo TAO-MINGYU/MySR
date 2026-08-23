@@ -12,6 +12,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -24,11 +25,16 @@ _DRIVER = _MYSR_JL / "scripts" / "run_from_files.jl"
 
 
 def find_julia() -> str:
+    # 1) sibling of the running python (conda env: julia lives in env/bin)
+    candidate = Path(sys.executable).resolve().parent / "julia"
+    if candidate.exists():
+        return str(candidate)
+    # 2) PATH
     exe = shutil.which("julia")
     if exe:
         return exe
     raise RuntimeError(
-        "julia executable not found in PATH; activate the env_mysr conda env"
+        "julia executable not found; activate the env_mysr conda env"
     )
 
 
@@ -56,6 +62,7 @@ def run_search(
 
         cmd = [
             find_julia(),
+            "--threads=auto",
             f"--project={_MYSR_JL}",
             str(_DRIVER),
             str(x_path),

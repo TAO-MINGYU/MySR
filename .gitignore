@@ -4,6 +4,9 @@
 trash/
 Records/
 
+# julia
+MySR.jl/Manifest.toml
+
 # python
 __pycache__/
 *.py[cod]

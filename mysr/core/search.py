@@ -27,9 +27,12 @@ class HallOfFame:
         return self.equations[i]
 
     def __repr__(self) -> str:
+        def _loss(e):
+            v = e.get("loss")
+            return "inf" if v is None else f"{v:.6g}"
+
         head = "\n".join(
-            f"  loss={e.get('loss'):.6g}  complexity={e.get('complexity')}  "
-            f"eq={e.get('equation')}"
+            f"  loss={_loss(e):>10}  complexity={e.get('complexity')}  eq={e.get('equation')}"
             for e in self.equations[:5]
         )
         return f"HallOfFame({len(self.equations)} equations)\n{head}"
