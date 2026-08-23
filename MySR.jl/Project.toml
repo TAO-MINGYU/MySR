@@ -1,0 +1,7 @@
+name = "MySR"
+uuid = "8f2b5c14-9a3e-4d7b-b6c2-1e5a8d0f3a21"
+authors = ["Mingyu Tao <mingyutao020410@gmail.com>"]
+version = "0.1.0"
+
+[compat]
+julia = "1.9"
