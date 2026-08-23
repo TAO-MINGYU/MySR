@@ -1,12 +1,3 @@
-# agent & tooling local state
-.claude/
-.vscode/
-trash/
-Records/
-
-# julia
-MySR.jl/Manifest.toml
-
 # python
 __pycache__/
 *.py[cod]
@@ -14,6 +5,13 @@ __pycache__/
 .venv/
 dist/
 build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# julia
+*.cov
+coverage/
 
 # os
 .DS_Store
