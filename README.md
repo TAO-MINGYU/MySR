@@ -1,41 +1,33 @@
 # MySR
 
-面向核物理实验数据分析的符号回归（Symbolic Regression）工具库——开发仓库。
+MySR 是面向核物理研究的符号回归（Symbolic Regression）开发仓库。
 
-本仓库 **monorepo 双包**，直接托管上游源码用于渐进式改造：
+当前阶段只建立两块可修改、版本兼容的上游源码基石：
 
-```
+```text
 MySR/
-├── pysr/                  # 前端：上游 PySR 源码（我们逐步修改）
-├── SymbolicRegression.jl/ # 后端：上游 SRJL 源码（我们逐步修改）
-├── pyproject.toml         # 前端打包配置（hatchling，vendored 自上游）
-├── VENDORING.md           # 上游来源/版本/更新方式
-├── LICENSE / LICENSE.PySR / LICENSE.SRJL
+├── pysr/                  # Python 前端，包含 PySRRegressor
+├── SymbolicRegression.jl/ # Julia 后端，简称 SRJL
+├── pyproject.toml         # 当前 PySR 前端的开发配置
+├── VENDORING.md           # 上游来源与版本
 └── README.md
 ```
 
-## 开发接线
+## 当前基线
 
-**前端（Python）**：可编辑安装到 conda 环境 `env_mysr`（Python 3.11）：
+- PySR 前端：`2.0.0-beta.3` 开发快照。
+- SRJL 后端：`2.0.0-beta.8`。
+- `pysr/juliapkg.json` 在本仓库中直接指向根目录下的 SRJL 源码。
+
+这一步只保证 MySR 拥有可研究、可修改的 PySR 与 SRJL 基石，不提前建立
+MySR 公共接口、发布流程或算法扩展。后续功能将逐项讨论、实现和验证。
+
+## 开发环境
+
 ```bash
 conda activate env_mysr
-pip install -e /home/taomingyu/projects/MySR   # 装的是 vendored pysr，改代码即时生效
-python -c "import pysr; print(pysr.__version__)"
+pip install -e /home/taomingyu/projects/MySR
+python -c "from pysr import PySRRegressor; print(PySRRegressor)"
 ```
 
-**后端（Julia）**：`env_mysr` 内置 Julia 1.12；使用本仓库的 SRJL 源码：
-```bash
-julia --project=SymbolicRegression.jl -e 'using Pkg; Pkg.instantiate()'
-julia --project=SymbolicRegression.jl -e 'using SymbolicRegression; println("OK")'
-```
-
-## 工作流
-
-1. 改前端 → `pysr/` 下的代码 → 直接 `import pysr` 生效（可编辑安装）
-2. 改后端 → `SymbolicRegression.jl/src/` 下的代码 → 在依赖它的 Julia 环境里 `Pkg.develop(path="…/SymbolicRegression.jl")` 后生效
-3. 前端调用后端的桥接沿用 PySR 自身的 juliacall 机制
-
-## 许可
-
-- 本项目自有代码：MIT（`LICENSE`）
-- vendored 上游：PySR（Apache-2.0，`LICENSE.PySR`）、SymbolicRegression.jl（`LICENSE.SRJL`）
+两块上游源码的精确来源见 [VENDORING.md](VENDORING.md)。
