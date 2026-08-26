@@ -1,20 +1,24 @@
 # Upstream source baseline
 
-MySR 当前直接保留 PySR 前端和 SymbolicRegression.jl（SRJL）后端源码，供后续
-逐步修改。两者的许可证分别见 `LICENSE.PySR` 和 `LICENSE.SRJL`。
+## Python frontend
 
-| 组件 | 目录 | 上游版本 | 上游 Git 提交 |
-|---|---|---|---|
-| PySR | `pysr/` | 2.0.0-beta.3 开发快照 | `85c2cc657d01362aaef667def6d590fae797da67` |
-| SRJL | `SymbolicRegression.jl/` | 2.0.0-beta.8 | `35d45fd625dc8df0067df60c72b615d83518ed44` |
+| 字段 | 内容 |
+| --- | --- |
+| 当前目录 | `mysr/` |
+| 上游项目 | PySR |
+| 上游版本 | 2.0.0-beta.3 development snapshot |
+| 上游提交 | `85c2cc657d01362aaef667def6d590fae797da67` |
+| 上游仓库 | https://github.com/MilesCranmer/PySR |
+| 许可证 | Apache License 2.0 |
 
-上游仓库：
+## Julia backend
 
-- PySR: https://github.com/MilesCranmer/PySR
-- SRJL: https://github.com/astroautomata/SymbolicRegression.jl
+Julia 源码已经拆分到独立仓库 `TAO-MINGYU/MySRCore.jl`。该仓库基于
+SymbolicRegression.jl 2.0.0-beta.8，提交
+`35d45fd625dc8df0067df60c72b615d83518ed44`：
 
-PySR 快照的 `juliapkg.json` 原本要求 SRJL `v2.0.0-beta.8`。本仓库只把该
-依赖改为相对路径 `../SymbolicRegression.jl`，从而在开发时直接使用仓库内后端。
+https://github.com/astroautomata/SymbolicRegression.jl
 
-后续开始修改任一上游源码后，更新上游必须通过逐项比较和合并完成，不能再用
-整目录覆盖，以免丢失 MySR 自己的改动。
+本地开发时，`mysr/juliapkg.json` 通过相对路径 `../../MySRCore.jl` 连接
+相邻后端仓库。以后同步上游更新时必须逐项比较和合并，不能用整目录覆盖 MySR
+自己的修改。

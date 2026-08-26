@@ -1,0 +1,16 @@
+MySR
+Copyright 2026 Mingyu Tao
+
+This product includes software derived from PySR:
+https://github.com/MilesCranmer/PySR
+Copyright Miles Cranmer and the PySR contributors.
+
+MySR also uses the independently published MySRCore.jl backend, which is derived
+from SymbolicRegression.jl:
+https://github.com/astroautomata/SymbolicRegression.jl
+
+The retained Python baseline is PySR 2.0.0-beta.3 at commit
+85c2cc657d01362aaef667def6d590fae797da67.
+
+MySR is an independent modified work and is not an official PySR release. It is
+distributed under Apache License 2.0.

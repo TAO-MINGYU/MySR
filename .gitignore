@@ -16,3 +16,8 @@ coverage/
 # os
 .DS_Store
 Thumbs.db
+
+# local collaboration and development records
+/AGENTS.md
+/MYSR_DESIGN.md
+/memory/
