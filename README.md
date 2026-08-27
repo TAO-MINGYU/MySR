@@ -29,9 +29,26 @@ MySR 的源码分为两个独立仓库：
 本仓库是 Python 前端。主要源码位于 `mysr/`，入口类为 `MySRRegressor`；
 当前实现保留 `PySRRegressor` 名称作为上游兼容别名。
 
-## 开发安装
+## 安装与后端自动配置
 
-两个仓库应放在同一父目录：
+从 GitHub 安装当前固定版本：
+
+```bash
+python -m pip install "git+https://github.com/TAO-MINGYU/MySR.git@v0.1.0"
+python -c "from mysr import MySRRegressor; print(MySRRegressor)"
+```
+
+MySR 使用 JuliaPkg 管理 Julia 运行环境和依赖。首次导入时，JuliaPkg 读取随
+Python wheel 一起发布的 `mysr/juliapkg.json`，从
+`TAO-MINGYU/MySRCore.jl` 下载固定标签 `v0.1.0` 并完成依赖解析。这个机制与
+固定基线 PySR 通过 GitHub URL 和版本标签解析 SymbolicRegression.jl 的方式
+相同；普通用户不需要预先安装 MySRCore.jl，也不需要把两个仓库放在相邻目录，
+并且当前安装不依赖 Julia General registry 中存在 MySRCore 条目。
+
+## 双仓开发模式
+
+只有需要同时编辑 Python 前端和 Julia 后端的开发者，才需要把两个仓库检出到
+本地。例如：
 
 ```text
 /home/taomingyu/projects/
@@ -39,15 +56,32 @@ MySR 的源码分为两个独立仓库：
 `-- MySRCore.jl/
 ```
 
-在 Conda 环境 `env_mysr` 中安装 Python 前端：
+在 MySR 仓库中安装可编辑 Python 包（editable install）：
 
 ```bash
 conda activate env_mysr
 python -m pip install --editable /home/taomingyu/projects/MySR
+```
+
+然后把发布配置临时切换为本地 MySRCore 开发路径，并要求 JuliaPkg 重新解析：
+
+```bash
+cd /home/taomingyu/projects/MySR
+python mysr/test/generate_dev_juliapkg.py \
+  mysr/juliapkg.json \
+  /home/taomingyu/projects/MySRCore.jl
+python -m juliapkg resolve
 python -c "from mysr import MySRRegressor; print(MySRRegressor)"
 ```
 
-`mysr/juliapkg.json` 以开发路径连接相邻的 `MySRCore.jl`。
+开发脚本只把 `MySRCore` 的来源从固定 `url + rev` 改为 `path + dev: true`，
+不会改变包 UUID 或 Julia preferences。准备构建或提交发行版前，应恢复并重新解析
+正式配置：
+
+```bash
+git restore mysr/juliapkg.json
+python -m juliapkg resolve
+```
 
 ## 上游与许可证
 

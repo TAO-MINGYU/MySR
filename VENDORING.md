@@ -19,6 +19,14 @@ SymbolicRegression.jl 2.0.0-beta.8，提交
 
 https://github.com/astroautomata/SymbolicRegression.jl
 
-本地开发时，`mysr/juliapkg.json` 通过相对路径 `../../MySRCore.jl` 连接
-相邻后端仓库。以后同步上游更新时必须逐项比较和合并，不能用整目录覆盖 MySR
-自己的修改。
+正式发行配置通过 `mysr/juliapkg.json` 中的 GitHub URL 和不可变版本标签
+`v0.1.0` 解析 MySRCore.jl。这复用了固定基线 PySR 解析
+SymbolicRegression.jl 的 JuliaPkg 模式，同时不要求 MySRCore.jl 预先注册到
+Julia General registry。
+
+双仓开发时，`mysr/test/generate_dev_juliapkg.py` 可将同一个 MySRCore 包条目
+临时切换为本地 `path + dev: true`。本地路径不是发布配置的一部分，构建发行物前
+必须恢复固定的 `url + rev` 配置。
+
+以后同步 PySR 或 SymbolicRegression.jl 上游更新时，必须从这里记录的固定提交
+开始逐项比较、合并和测试，不能用整目录覆盖 MySR 或 MySRCore.jl 自己的修改。

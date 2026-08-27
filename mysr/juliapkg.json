@@ -3,8 +3,8 @@
     "packages": {
         "MySRCore": {
             "uuid": "65629769-74ff-4293-a07c-ae7483a03f6e",
-            "path": "../../MySRCore.jl",
-            "dev": true,
+            "url": "https://github.com/TAO-MINGYU/MySRCore.jl",
+            "rev": "v0.1.0",
             "preferences": {
                 "precompile_float64": false
             }

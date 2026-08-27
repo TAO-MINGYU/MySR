@@ -1,19 +1,35 @@
-# Example call:
-## python3 generate_dev_juliapkg.py /pysr/pysr/juliapkg.json /srjl
+"""Switch MySR's JuliaPkg configuration to a local MySRCore checkout."""
+
+import argparse
 import json
-import sys
+from pathlib import Path
 
-juliapkg_json = sys.argv[1]
-path_to_srjl = sys.argv[2]
 
-with open(juliapkg_json, "r") as f:
-    juliapkg = json.load(f)
+def generate_dev_config(juliapkg_json: Path, path_to_mysrcore: Path) -> None:
+    with juliapkg_json.open("r", encoding="utf-8") as file:
+        juliapkg = json.load(file)
 
-juliapkg["packages"]["SymbolicRegression"] = {
-    "uuid": juliapkg["packages"]["SymbolicRegression"]["uuid"],
-    "path": path_to_srjl,
-    "dev": True,
-}
+    package = juliapkg["packages"]["MySRCore"]
+    package.pop("url", None)
+    package.pop("rev", None)
+    package["path"] = str(path_to_mysrcore)
+    package["dev"] = True
 
-with open(juliapkg_json, "w") as f:
-    json.dump(juliapkg, f, indent=4)
+    with juliapkg_json.open("w", encoding="utf-8") as file:
+        json.dump(juliapkg, file, indent=4)
+        file.write("\n")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Use a local MySRCore.jl checkout instead of the pinned release."
+    )
+    parser.add_argument("juliapkg_json", type=Path)
+    parser.add_argument("path_to_mysrcore", type=Path)
+    args = parser.parse_args()
+
+    generate_dev_config(args.juliapkg_json, args.path_to_mysrcore)
+
+
+if __name__ == "__main__":
+    main()
