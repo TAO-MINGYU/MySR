@@ -1,8 +1,21 @@
 # MySR
 
-MySR 是一款基于 PySR 和 SymbolicRegression.jl 开发的通用符号回归
-（Symbolic Regression）工具。MySR 不绑定特定学科；未来的 NuSR 将在 MySR
-之上提供核物理专用能力。
+MySR 是从 PySR 独立派生并在其基础上持续改进和扩展的通用符号回归
+（Symbolic Regression）Python 软件包。它保留 PySR 的成熟前端与
+scikit-learn 接口作为可追溯基线，并使用从 SymbolicRegression.jl 派生的
+MySRCore.jl 作为 Julia 算法后端。
+
+MySR 不绑定特定学科；未来的 NuSR 将在 MySR 之上提供核物理专用能力。
+当前 `0.1.0` 版本完成了包改名、前后端拆分和本地开发接线，尚未宣称已经实现
+MySR 特有的符号回归算法改进。后续改进将逐项实现、测试并记录。
+
+## 与 PySR 的关系
+
+- MySR 的 Python 源码基于 PySR 2.0.0-beta.3 的固定快照。
+- 保留的上游实现继续归属于 PySR 及其贡献者；MySR 的修改单独记录。
+- MySR 是独立派生项目，不是 PySR 官方发行版，也不代表 PySR 上游团队。
+- MySR 的目标是在保持来源可追溯和基线可复现的前提下，逐步形成自己的接口、
+  工程能力和符号回归算法改进。
 
 ## 仓库结构
 
@@ -44,3 +57,6 @@ SymbolicRegression.jl 2.0.0-beta.8。两个仓库均采用 Apache License 2.0。
 [FORK_CHANGES.md](FORK_CHANGES.md)。
 
 MySR 是独立修改项目，不是 PySR 或 SymbolicRegression.jl 的官方发行版。
+Apache License 2.0 的标准正文保留在 [LICENSE](LICENSE)；派生来源、版权归属
+和修改记录分别保存在 [NOTICE](NOTICE)、[VENDORING.md](VENDORING.md) 和
+[FORK_CHANGES.md](FORK_CHANGES.md)。
