@@ -20,11 +20,11 @@ except ImportError:
 
 # For type checking purposes
 if TYPE_CHECKING:
-    from .sr import PySRRegressor  # pragma: no cover
+    from .sr import MySRRegressor  # pragma: no cover
 
-    PySRRegressor: TypeAlias = PySRRegressor  # pragma: no cover
+    MySRRegressor: TypeAlias = MySRRegressor  # pragma: no cover
 else:
-    PySRRegressor = NewType("PySRRegressor", Any)
+    MySRRegressor = NewType("MySRRegressor", Any)
 
 
 class AbstractExpressionSpec(ABC):
@@ -51,7 +51,7 @@ class AbstractExpressionSpec(ABC):
     def _julia_expression_spec_source(self, *, prototype: str | None) -> str | None:
         """Return self-contained Julia source for a TypeSpec-compatible spec.
 
-        ``prototype`` is Julia source for one value of the generated type. PySR
+        ``prototype`` is Julia source for one value of the generated type. MySR
         evaluates the returned source once in the fingerprinted runtime module.
         """
         return None
@@ -59,7 +59,7 @@ class AbstractExpressionSpec(ABC):
     def _julia_expression_spec_function_selector(self) -> str | None:
         """Return Julia source selecting the callable nested in the spec.
 
-        PySR evaluates the source to a selector, invokes it with the expression
+        MySR evaluates the source to a selector, invokes it with the expression
         spec, and binds the result under a deterministic runtime-module name so
         checkpoints and workers resolve the same callable identity.
         """
@@ -75,7 +75,7 @@ class AbstractExpressionSpec(ABC):
     @abstractmethod
     def create_exports(
         self,
-        model: PySRRegressor,
+        model: MySRRegressor,
         equations: pd.DataFrame,
         search_output,
         i: int | None = None,
@@ -112,7 +112,7 @@ class ExpressionSpec(AbstractExpressionSpec):
 
     def create_exports(
         self,
-        model: PySRRegressor,
+        model: MySRRegressor,
         equations: pd.DataFrame,
         search_output,
         i: int | None = None,
@@ -155,7 +155,7 @@ class TemplateExpressionSpec(AbstractExpressionSpec):
 
     This class allows you to specify how multiple sub-expressions should be combined
     in a structured way, with constraints on which variables each sub-expression can use.
-    Pass this to PySRRegressor with the `expression_spec` argument.
+    Pass this to MySRRegressor with the `expression_spec` argument.
 
     Parameters
     ----------
@@ -190,8 +190,8 @@ class TemplateExpressionSpec(AbstractExpressionSpec):
         combine="p1[1] * sin(f(x1, x2)) + p1[2] * g(x3) + p2[1]",
     )
 
-    # Use in PySRRegressor:
-    model = PySRRegressor(
+    # Use in MySRRegressor:
+    model = MySRRegressor(
         expression_spec=expression_spec
     )
     ```
@@ -256,7 +256,7 @@ class TemplateExpressionSpec(AbstractExpressionSpec):
 
     def create_exports(
         self,
-        model: PySRRegressor,
+        model: MySRRegressor,
         equations: pd.DataFrame,
         search_output,
         i: int | None = None,

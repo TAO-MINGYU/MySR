@@ -6,8 +6,11 @@ scikit-learn 接口作为可追溯基线，并使用从 SymbolicRegression.jl �
 MySRCore.jl 作为 Julia 算法后端。
 
 MySR 不绑定特定学科；未来的 NuSR 将在 MySR 之上提供核物理专用能力。
-当前 `0.1.0` 版本完成了包改名、前后端拆分和本地开发接线，尚未宣称已经实现
-MySR 特有的符号回归算法改进。后续改进将逐项实现、测试并记录。
+`0.2.0` 版本将公开入口和实现类统一为 `MySRRegressor`，并新增默认关闭的
+AI Feynman-inspired 自动特征工程（automated feature engineering）。该功能使用
+多层感知机（Multilayer Perceptron, MLP）代理模型探测输入变量间的固定和参数化
+广义对称性，再以 `suggest` 模式报告候选，或以 `augment` 模式把可重放候选追加到
+MySRCore 的输入。当前证据来自聚焦合成测试，尚不构成性能优于 PySR 的声明。
 
 ## 与 PySR 的关系
 
@@ -27,14 +30,15 @@ MySR 的源码分为两个独立仓库：
 | `TAO-MINGYU/MySRCore.jl` | Julia 算法核心 | package/module: `MySRCore` |
 
 本仓库是 Python 前端。主要源码位于 `mysr/`，入口类为 `MySRRegressor`；
-当前实现保留 `PySRRegressor` 名称作为上游兼容别名。
+当前公开回归器和实现类均命名为 `MySRRegressor`。MySR 仍明确承认其基于 PySR
+发展，并在许可证、NOTICE、VENDORING 和 benchmark 中保留真实的 PySR 上游名称。
 
 ## 安装与后端自动配置
 
 从 GitHub 安装当前固定版本：
 
 ```bash
-python -m pip install "git+https://github.com/TAO-MINGYU/MySR.git@v0.1.0"
+python -m pip install "git+https://github.com/TAO-MINGYU/MySR.git@v0.2.0"
 python -c "from mysr import MySRRegressor; print(MySRRegressor)"
 ```
 
@@ -44,6 +48,36 @@ Python wheel 一起发布的 `mysr/juliapkg.json`，从
 固定基线 PySR 通过 GitHub URL 和版本标签解析 SymbolicRegression.jl 的方式
 相同；普通用户不需要预先安装 MySRCore.jl，也不需要把两个仓库放在相邻目录，
 并且当前安装不依赖 Julia General registry 中存在 MySRCore 条目。
+
+## 自动特征工程
+
+该功能必须显式打开，并要求用户显式声明公式类型。当前 `0.2.0` 仅支持
+`formula_type="empirical"`；理论（theoretical）、半理论（semi-theoretical）量纲
+模式和 FEAT-style 分支尚未实现，调用时会明确报错而不会静默降级。
+
+```python
+from mysr import MySRRegressor
+
+model = MySRRegressor(
+    auto_feature_engineering=True,
+    feature_engineering_config={
+        "formula_type": "empirical",
+        "mode": "augment",  # "suggest" only reports candidates
+        "surrogate_engine": {"enabled": True},
+        "feat_engine": {"enabled": False},
+    },
+)
+model.fit(X, y, variable_names=["x1", "x2", "x3"])
+
+print(model.feature_engineering_report_)
+print(model.engineered_feature_expressions_)
+predictions = model.predict(X)
+```
+
+当前代理分支可检索 `xi±xj`、`xi*xj`、`xi/xj`，以及
+`xi±a*xj`、`xi*xj^a`、`xi/xj^a` 等参数化候选，并支持有预算的多层组合。
+它使用多个独立 MLP、多个扰动尺度及独立验证切分过滤不稳定关系。
+`auto_feature_engineering=False` 是默认值，因此升级不会自动改变既有预处理流程。
 
 ## 双仓开发模式
 

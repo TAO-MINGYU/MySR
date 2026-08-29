@@ -86,7 +86,7 @@ def create_sympy_symbols(
     return [sympy.Symbol(variable) for variable in feature_names_in]
 
 
-def pysr2sympy(
+def mysr2sympy(
     equation: str | float | int,
     *,
     feature_names_in: ArrayLike[str] | None = None,

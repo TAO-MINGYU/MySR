@@ -3,13 +3,13 @@ from __future__ import annotations
 import logging
 import os
 
-pysr_logger = logging.getLogger("mysr")
-pysr_logger.setLevel(logging.INFO)
+mysr_logger = logging.getLogger("mysr")
+mysr_logger.setLevel(logging.INFO)
 handler = logging.StreamHandler()
 handler.setLevel(logging.INFO)
-pysr_logger.addHandler(handler)
+mysr_logger.addHandler(handler)
 
-if os.environ.get("PYSR_USE_BEARTYPE", "0") == "1":
+if os.environ.get("MYSR_USE_BEARTYPE", "0") == "1":
     from beartype.claw import beartype_this_package
 
     beartype_this_package()
@@ -23,13 +23,22 @@ from .julia_import import jl, MySRCore, SymbolicRegression  # isort:skip
 from importlib.metadata import PackageNotFoundError, version
 
 from . import sklearn_monkeypatch
-from .deprecated import best, best_callable, best_row, best_tex, install, pysr
+from .deprecated import best, best_callable, best_row, best_tex, install
 from .export_jax import sympy2jax
 from .export_torch import sympy2torch
 from .expression_specs import (
     AbstractExpressionSpec,
     ExpressionSpec,
     TemplateExpressionSpec,
+)
+from .feature_engineering import (
+    DecompositionProposal,
+    FEATEngineConfig,
+    FeatureEngineeringConfig,
+    FeatureNode,
+    FeatureProposal,
+    SurrogateEngineConfig,
+    SurrogateFeatureEngineer,
 )
 from .julia_extensions import load_all_packages
 from .logger_specs import AbstractLoggerSpec, TensorBoardLoggerSpec
@@ -56,10 +65,9 @@ from .plugins import (
     MutationBurstPlugin,
     SimulatedAnnealingPlugin,
 )
-from .sr import PySRRegressor
+from .sr import MySRRegressor
 from .type_specs import TypeSpec
 
-MySRRegressor = PySRRegressor
 __upstream_package__ = "PySR"
 
 try:
@@ -69,46 +77,51 @@ except PackageNotFoundError:  # pragma: no cover
     __version__ = "unknown"
 
 __all__ = [
-    "jl",
-    "MySRCore",
-    "SymbolicRegression",
-    "sklearn_monkeypatch",
-    "sympy2jax",
-    "sympy2torch",
-    "install",
-    "load_all_packages",
-    "PySRRegressor",
-    "MySRRegressor",
     "AbstractExpressionSpec",
-    "ExpressionSpec",
-    "TemplateExpressionSpec",
     "AbstractLoggerSpec",
-    "TensorBoardLoggerSpec",
-    "TypeSpec",
     "AbstractMutation",
-    "ConstantMutation",
-    "OperatorMutation",
-    "FeatureMutation",
-    "SwapOperandsMutation",
-    "AddNodeMutation",
-    "InsertNodeMutation",
-    "DeleteNodeMutation",
-    "RotateTreeMutation",
-    "BacksolveMutation",
-    "SimplifyMutation",
-    "RandomizeMutation",
-    "OptimizeMutation",
-    "DoNothingMutation",
     "AbstractPlugin",
     "AdaptiveMutationWeightsPlugin",
     "AdaptiveParsimonyPlugin",
+    "AddNodeMutation",
+    "BacksolveMutation",
+    "ConstantMutation",
+    "DecompositionProposal",
+    "DeleteNodeMutation",
+    "DoNothingMutation",
+    "ExpressionSpec",
+    "FEATEngineConfig",
+    "FeatureEngineeringConfig",
+    "FeatureMutation",
+    "FeatureNode",
+    "FeatureProposal",
+    "InsertNodeMutation",
     "MutationBurstPlugin",
+    "MySRCore",
+    "MySRRegressor",
+    "OperatorMutation",
+    "OptimizeMutation",
+    "RandomizeMutation",
+    "RotateTreeMutation",
+    "SimplifyMutation",
     "SimulatedAnnealingPlugin",
+    "SurrogateEngineConfig",
+    "SurrogateFeatureEngineer",
+    "SwapOperandsMutation",
+    "SymbolicRegression",
+    "TemplateExpressionSpec",
+    "TensorBoardLoggerSpec",
+    "TypeSpec",
+    "__upstream_package__",
+    "__version__",
     "best",
     "best_callable",
     "best_row",
     "best_tex",
-    "pysr",
-    "__version__",
-    "__upstream_package__",
+    "install",
+    "jl",
+    "load_all_packages",
+    "sklearn_monkeypatch",
+    "sympy2jax",
+    "sympy2torch",
 ]

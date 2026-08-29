@@ -30,3 +30,18 @@ Julia General registry。
 
 以后同步 PySR 或 SymbolicRegression.jl 上游更新时，必须从这里记录的固定提交
 开始逐项比较、合并和测试，不能用整目录覆盖 MySR 或 MySRCore.jl 自己的修改。
+
+## Algorithmic inspiration: AI Feynman
+
+MySR 的自动特征工程代理分支参考了 AI Feynman 的代理插值、对称性、可分离性、
+组合性和递归降维思想：
+
+- 论文：Udrescu and Tegmark, *AI Feynman: A physics-inspired method for
+  symbolic regression*, Science Advances 6 (2020)；
+- 论文：Udrescu et al., *AI Feynman 2.0: Pareto-optimal symbolic regression
+  exploiting graph modularity*, NeurIPS 2020；
+- 官方仓库：https://github.com/SJ001/AI-Feynman （MIT License）。
+
+`mysr/feature_engineering.py` 是面向 MySR 接口重新设计的独立实现，没有复制、
+打包或运行官方 AI Feynman 源文件，因此 AI Feynman 不是 MySR 的 vendored dependency
+或运行时依赖。若以后直接复制官方源码，必须另行保留其 MIT 版权与许可证文本。

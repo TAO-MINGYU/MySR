@@ -6,7 +6,7 @@ from typing import Literal, cast
 import numpy as np
 import pandas as pd
 
-from mysr import PySRRegressor, jl
+from mysr import MySRRegressor, jl
 
 from .params import DEFAULT_NITERATIONS
 
@@ -27,7 +27,7 @@ class TestAutodiff(unittest.TestCase):
         self, backend: Literal["Zygote", "Mooncake", "Enzyme"]
     ) -> str:
         y = 2.5 * self.X[:, 0] + 1.3
-        model = PySRRegressor(
+        model = MySRRegressor(
             **self.default_test_kwargs,
             early_stop_condition="stop_if(loss, complexity) = loss < 1e-4 && complexity <= 5",
             autodiff_backend=backend,

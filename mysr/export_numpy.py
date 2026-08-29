@@ -27,7 +27,7 @@ class CallableEquation:
         self._selection = selection
 
     def __repr__(self):
-        return f"PySRFunction(X=>{self._sympy})"
+        return f"MySRFunction(X=>{self._sympy})"
 
     def __call__(self, X):
         expected_shape = (X.shape[0],)

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-from mysr import PySRRegressor, jl
+from mysr import MySRRegressor, jl
 from mysr.julia_import import jl_version
 from mysr.julia_registry_helpers import PREFERENCE_KEY, try_with_registry_fallback
 
@@ -17,11 +17,11 @@ from .params import DEFAULT_NITERATIONS, DEFAULT_POPULATIONS
 
 
 class TestStartup(unittest.TestCase):
-    """Various tests related to starting up PySR."""
+    """Various tests related to starting up MySR."""
 
     def setUp(self):
         # Using inspect,
-        # get default niterations from PySRRegressor, and double them:
+        # get default niterations from MySRRegressor, and double them:
         self.default_test_kwargs = dict(
             progress=False,
             model_selection="accuracy",
@@ -38,7 +38,7 @@ class TestStartup(unittest.TestCase):
             self.skipTest("Warm start test incompatible with Windows")
 
         with tempfile.TemporaryDirectory() as tmpdirname:
-            model = PySRRegressor(
+            model = MySRRegressor(
                 **self.default_test_kwargs,
                 unary_operators=["cos"],
             )
@@ -70,14 +70,14 @@ class TestStartup(unittest.TestCase):
                     sys.executable,
                     "-c",
                     textwrap.dedent(f"""
-                        from mysr import PySRRegressor
+                        from mysr import MySRRegressor
                         import numpy as np
 
                         X = np.load("{X_file}")
                         y = np.load("{y_file}")
 
                         print("Loading model from file")
-                        model = PySRRegressor.from_file(
+                        model = MySRRegressor.from_file(
                             run_directory="{str(Path(tmpdirname) / model.run_id_)}"
                         )
 

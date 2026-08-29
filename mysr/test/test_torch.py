@@ -6,7 +6,7 @@ import pandas as pd
 import sympy  # type: ignore
 
 import mysr
-from mysr import PySRRegressor, sympy2torch
+from mysr import MySRRegressor, sympy2torch
 
 
 class TestTorch(unittest.TestCase):
@@ -32,7 +32,7 @@ class TestTorch(unittest.TestCase):
     def test_pipeline_pandas(self):
         X = pd.DataFrame(np.random.randn(100, 10))
         y = np.ones(X.shape[0])
-        model = PySRRegressor(
+        model = MySRRegressor(
             progress=False,
             max_evals=10000,
             model_selection="accuracy",
@@ -67,7 +67,7 @@ class TestTorch(unittest.TestCase):
     def test_pipeline(self):
         X = np.random.randn(100, 10)
         y = np.ones(X.shape[0])
-        model = PySRRegressor(
+        model = MySRRegressor(
             progress=False,
             max_evals=10000,
             model_selection="accuracy",
@@ -120,7 +120,7 @@ class TestTorch(unittest.TestCase):
     def test_custom_operator(self):
         X = np.random.randn(100, 3)
         y = np.ones(X.shape[0])
-        model = PySRRegressor(
+        model = MySRRegressor(
             progress=False,
             max_evals=10000,
             model_selection="accuracy",
@@ -165,14 +165,14 @@ class TestTorch(unittest.TestCase):
     def test_avoid_simplification(self):
         # SymPy should not simplify without permission
         torch = self.torch
-        ex = pysr.export_sympy.pysr2sympy(
+        ex = mysr.export_sympy.mysr2sympy(
             "square(exp(sign(0.44796443))) + 1.5 * x1",
             # ^ Normally this would become exp1 and require
             #   its own mapping
             feature_names_in=["x1"],
             extra_sympy_mappings={"square": lambda x: x**2},
         )
-        m = pysr.export_torch.sympy2torch(ex, ["x1"])
+        m = mysr.export_torch.sympy2torch(ex, ["x1"])
         rng = np.random.RandomState(0)
         X = rng.randn(10, 1)
         np.testing.assert_almost_equal(
@@ -184,7 +184,7 @@ class TestTorch(unittest.TestCase):
     def test_issue_656(self):
         # Should correctly map numeric symbols to floats
         E_plus_x1 = sympy.exp(1) + sympy.symbols("x1")
-        m = pysr.export_torch.sympy2torch(E_plus_x1, ["x1"])
+        m = mysr.export_torch.sympy2torch(E_plus_x1, ["x1"])
         X = np.random.randn(10, 1)
         np.testing.assert_almost_equal(
             m(self.torch.tensor(X)).detach().numpy(),
@@ -194,23 +194,23 @@ class TestTorch(unittest.TestCase):
 
     def test_constant_arguments(self):
         # Test that functions with constant arguments work correctly
-        # Regression test for https://github.com/astroautomata/PySR/issues/656
+        # Regression test for https://github.com/astroautomata/MySR/issues/656
         test_cases = [
-            (pysr.export_sympy.pysr2sympy("sqrt(2)"), np.sqrt(2)),
+            (mysr.export_sympy.mysr2sympy("sqrt(2)"), np.sqrt(2)),
             (sympy.exp(2), np.exp(2)),
             (sympy.log(4), np.log(4)),
             (sympy.sin(1), np.sin(1)),
         ]
 
         for expr, expected in test_cases:
-            m = pysr.export_torch.sympy2torch(expr, [])
+            m = mysr.export_torch.sympy2torch(expr, [])
             result = m(self.torch.randn(10, 1))
             np.testing.assert_almost_equal(result.item(), expected, decimal=3)
 
         # Test with variables: sqrt(2) * x
         x = sympy.symbols("x")
         expr = sympy.sqrt(2) * x
-        m = pysr.export_torch.sympy2torch(expr, [x])
+        m = mysr.export_torch.sympy2torch(expr, [x])
         X = np.random.randn(10, 1)
         np.testing.assert_almost_equal(
             m(self.torch.tensor(X)).detach().numpy().flatten(),
@@ -227,7 +227,7 @@ class TestTorch(unittest.TestCase):
 
         y = X["k15"] ** 2 + 2 * cos_approx(X["k20"])
 
-        model = PySRRegressor(
+        model = MySRRegressor(
             progress=False,
             unary_operators=["cos_approx(x) = 1 - x^2 / 2 + x^4 / 24 + x^6 / 720"],
             select_k_features=3,

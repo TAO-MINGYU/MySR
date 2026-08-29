@@ -7,8 +7,8 @@ from pathlib import Path
 class TestDev(unittest.TestCase):
     def test_simple_change_to_backend(self):
         """Test that we can use a development version of SymbolicRegression.jl"""
-        PYSR_TEST_JULIA_VERSION = os.environ.get("PYSR_TEST_JULIA_VERSION", "1.11")
-        PYSR_TEST_PYTHON_VERSION = os.environ.get("PYSR_TEST_PYTHON_VERSION", "3.12")
+        MYSR_TEST_JULIA_VERSION = os.environ.get("MYSR_TEST_JULIA_VERSION", "1.11")
+        MYSR_TEST_PYTHON_VERSION = os.environ.get("MYSR_TEST_PYTHON_VERSION", "3.12")
         repo_root = Path(__file__).parent.parent.parent
 
         build_result = subprocess.run(
@@ -18,11 +18,11 @@ class TestDev(unittest.TestCase):
                 "bake",
                 "-f",
                 "docker-bake.hcl",
-                "pysr-dev",
+                "mysr-dev",
                 "--set",
-                f"pysr-dev.args.JLVERSION={PYSR_TEST_JULIA_VERSION}",
+                f"mysr-dev.args.JLVERSION={MYSR_TEST_JULIA_VERSION}",
                 "--set",
-                f"pysr-dev.args.PYVERSION={PYSR_TEST_PYTHON_VERSION}",
+                f"mysr-dev.args.PYVERSION={MYSR_TEST_PYTHON_VERSION}",
             ],
             env=os.environ,
             cwd=repo_root,
@@ -34,7 +34,7 @@ class TestDev(unittest.TestCase):
                 "docker",
                 "run",
                 "--rm",
-                "pysr-dev",
+                "mysr-dev",
                 "python3",
                 "-c",
                 "from mysr import SymbolicRegression as SR; print(SR.__test_function())",

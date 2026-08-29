@@ -16,7 +16,7 @@ from juliacall import JuliaError  # type: ignore
 from .julia_helpers import jl_array
 from .julia_import import AnyValue, SymbolicRegression, jl
 
-_TYPE_MODULE_INSTALLED = "_PYSR_TYPE_SPEC_INSTALLED"
+_TYPE_MODULE_INSTALLED = "_MYSR_TYPE_SPEC_INSTALLED"
 
 
 def object_array_1d(values: Any) -> np.ndarray:
@@ -164,7 +164,7 @@ class _TypeSpecDefinition:
 
     @property
     def module_name(self) -> str:
-        return f"_PySRTypeSpec_{self.fingerprint[:20]}"
+        return f"_MySRTypeSpec_{self.fingerprint[:20]}"
 
 
 @dataclass(frozen=True)
@@ -183,7 +183,7 @@ class _TypeSpecRuntimeDefinition:
 
     @property
     def module_name(self) -> str:
-        return f"_PySRConfig_{self.fingerprint[:20]}"
+        return f"_MySRConfig_{self.fingerprint[:20]}"
 
 
 @dataclass(frozen=True)
@@ -266,7 +266,7 @@ def _runtime_install_source(
                 Base.include_string(
                     Main,
                     {_quoted(type_definition.source)},
-                    {_quoted("PySR." + type_definition.module_name)},
+                    {_quoted("MySR." + type_definition.module_name)},
                 )
             end
         end
@@ -284,7 +284,7 @@ def _runtime_install_source(
                 Core.eval(parent, Expr(:module, true, module_name, Expr(:block)))
                 module_ = Base.invokelatest(getproperty, parent, module_name)
                 Core.eval(module_, :(using SymbolicRegression))
-                for name in getproperty(parent, :_PYSR_PARENT_BINDING_NAMES)
+                for name in getproperty(parent, :_MYSR_PARENT_BINDING_NAMES)
                     isdefined(module_, name) && continue
                     Core.eval(
                         module_,
@@ -308,7 +308,7 @@ def _runtime_install_source(
                         Base.include_string(
                             module_,
                             source,
-                            "PySR TypeSpec configuration $index",
+                            "MySR TypeSpec configuration $index",
                         ),
                     )
                 end
@@ -317,7 +317,7 @@ def _runtime_install_source(
                     selector_value = Base.include_string(
                         module_,
                         selector_source,
-                        "PySR TypeSpec expression function selector",
+                        "MySR TypeSpec expression function selector",
                     )
                     push!(values, Base.invokelatest(selector_value, values[end]))
                 end
@@ -379,7 +379,7 @@ def compile_type_spec_runtime(
     fingerprint = hashlib.sha256(
         json.dumps(payload, sort_keys=True).encode()
     ).hexdigest()
-    runtime_module_name = f"_PySRConfig_{fingerprint[:20]}"
+    runtime_module_name = f"_MySRConfig_{fingerprint[:20]}"
     sources = _runtime_sources(
         normalized_operators,
         elementwise_loss,
@@ -687,7 +687,7 @@ def compile_type_spec(spec: TypeSpec) -> _TypeSpecDefinition:
         """)
     body = _TYPE_SPEC_MODULE.replace("__TYPE_SPEC_CONFIG__", config, 1)
     fingerprint = hashlib.sha256(body.encode()).hexdigest()
-    module_name = f"_PySRTypeSpec_{fingerprint[:20]}"
+    module_name = f"_MySRTypeSpec_{fingerprint[:20]}"
     source = _block(f"""
         module {module_name}
         using Random
@@ -696,7 +696,7 @@ def compile_type_spec(spec: TypeSpec) -> _TypeSpecDefinition:
 
         {body}
 
-        const _PYSR_PARENT_BINDING_NAMES = Tuple(sort!(
+        const _MYSR_PARENT_BINDING_NAMES = Tuple(sort!(
             filter(
                 name -> isdefined(@__MODULE__, name) &&
                     !startswith(String(name), '#'),
@@ -726,10 +726,10 @@ def load_type_spec_runtime(
     )
     if isinstance(definition, _TypeSpecRuntimeDefinition):
         install_source = definition.source
-        filename = "PySR." + definition.module_name
+        filename = "MySR." + definition.module_name
     else:
         install_source = type_definition.source
-        filename = "PySR." + type_definition.module_name
+        filename = "MySR." + type_definition.module_name
     module_symbol = jl.Symbol(type_definition.module_name)
     runtime_module_symbol = (
         jl.Symbol(definition.module_name)
@@ -893,7 +893,7 @@ def create_type_spec_addprocs_function(
     return _type_spec_worker_addprocs_factory()(
         addprocs_function,
         definition.source,
-        "PySR." + definition.module_name,
+        "MySR." + definition.module_name,
         worker_imports,
         definition.type_spec.module_name,
         definition.module_name,
@@ -1109,7 +1109,7 @@ def validate_type_spec_options(
             else jl.Base.include_string(
                 runtime.module,
                 runtime.spec.loss_type,
-                "PySR TypeSpec loss_type",
+                "MySR TypeSpec loss_type",
             )
         )
         return _type_spec_loss_validator()(

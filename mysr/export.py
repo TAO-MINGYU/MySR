@@ -9,7 +9,7 @@ from numpy.typing import NDArray
 
 from .export_jax import sympy2jax
 from .export_numpy import sympy2numpy
-from .export_sympy import create_sympy_symbols, pysr2sympy
+from .export_sympy import create_sympy_symbols, mysr2sympy
 from .export_torch import sympy2torch
 from .utils import ArrayLike
 
@@ -37,7 +37,7 @@ def add_export_formats(
     torch_format = []
 
     for _, eqn_row in output.iterrows():
-        eqn = pysr2sympy(
+        eqn = mysr2sympy(
             eqn_row["equation"],
             feature_names_in=feature_names_in,
             extra_sympy_mappings=extra_sympy_mappings,

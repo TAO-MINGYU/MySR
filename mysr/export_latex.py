@@ -1,4 +1,4 @@
-"""Functions to help export PySR equations to LaTeX."""
+"""Functions to help export MySR equations to LaTeX."""
 
 from __future__ import annotations
 

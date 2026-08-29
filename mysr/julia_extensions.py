@@ -36,7 +36,7 @@ def load_required_packages(
 
 
 def load_all_packages():
-    """Install and load all Julia extensions available to PySR."""
+    """Install and load all Julia extensions available to MySR."""
     load_required_packages(
         turbo=True,
         bumper=True,

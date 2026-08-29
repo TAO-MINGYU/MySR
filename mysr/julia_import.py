@@ -13,7 +13,7 @@ if "juliacall" in sys.modules:
     warnings.warn(
         "juliacall module already imported. "
         "Make sure that you have set the environment variable `PYTHON_JULIACALL_HANDLE_SIGNALS=yes` to avoid segfaults. "
-        "Also note that PySR will not be able to configure `PYTHON_JULIACALL_THREADS` or `PYTHON_JULIACALL_OPTLEVEL` for you."
+        "Also note that MySR will not be able to configure `PYTHON_JULIACALL_THREADS` or `PYTHON_JULIACALL_OPTLEVEL` for you."
     )
 else:
     # Required to avoid segfaults (https://juliapy.github.io/PythonCall.jl/dev/faq/)
@@ -26,7 +26,7 @@ else:
     if os.environ.get("PYTHON_JULIACALL_THREADS", "auto") != "auto":
         warnings.warn(
             "PYTHON_JULIACALL_THREADS environment variable is set to something other than 'auto', "
-            "so PySR was not able to set it. You may wish to set it to `'auto'` for full use "
+            "so MySR was not able to set it. You may wish to set it to `'auto'` for full use "
             "of your CPU."
         )
 
@@ -39,7 +39,7 @@ else:
         os.environ[k] = os.environ.get(k, default)
 
 
-autoload_extensions = os.environ.get("PYSR_AUTOLOAD_EXTENSIONS")
+autoload_extensions = os.environ.get("MYSR_AUTOLOAD_EXTENSIONS")
 if autoload_extensions is not None:
     # Deprecated; so just pass to juliacall
     os.environ["PYTHON_JULIACALL_AUTOLOAD_IPYTHON_EXTENSION"] = autoload_extensions

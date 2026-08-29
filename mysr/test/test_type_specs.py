@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 from juliacall import JuliaError  # type: ignore
 
-from mysr import PySRRegressor, TemplateExpressionSpec, TypeSpec, jl
+from mysr import MySRRegressor, TemplateExpressionSpec, TypeSpec, jl
 from mysr.expression_specs import AbstractExpressionSpec, ExpressionSpec
 from mysr.type_specs import (
     CallableJuliaExpression,
@@ -85,7 +85,7 @@ def tiny_model(spec, *, parallelism="serial", **overrides):
         "should_optimize_constants": False,
     }
     parameters.update(overrides)
-    return PySRRegressor(**parameters)
+    return MySRRegressor(**parameters)
 
 
 def identity_template():
@@ -110,7 +110,7 @@ class TestTypeSpecs(unittest.TestCase):
 
         np.testing.assert_array_equal(model.predict(X), y)
         self.assertTrue(
-            model._type_spec_runtime_definition_.module_name.startswith("_PySRConfig_")
+            model._type_spec_runtime_definition_.module_name.startswith("_MySRConfig_")
         )
         self.assertIn("lambda_format", model.equations_.columns)
 
@@ -291,7 +291,7 @@ class TestTypeSpecs(unittest.TestCase):
 
     def test_failed_runtime_install_can_retry_same_definition(self):
         suffix = uuid.uuid4().hex
-        flag = f"_pysr_retry_install_{suffix}"
+        flag = f"_mysr_retry_install_{suffix}"
         type_name = f"RetryInstallValue_{suffix}"
         operator_name = f"retry_identity_{suffix}"
         jl.seval(f"global {flag} = Ref(true)")
@@ -320,7 +320,7 @@ class TestTypeSpecs(unittest.TestCase):
 
     def test_failed_type_install_can_retry_same_definition(self):
         suffix = uuid.uuid4().hex
-        flag = f"_pysr_retry_type_install_{suffix}"
+        flag = f"_mysr_retry_type_install_{suffix}"
         type_name = f"RetryTypeValue_{suffix}"
         operator_name = f"retry_type_identity_{suffix}"
         jl.seval(f"global {flag} = Ref(true)")
@@ -349,7 +349,7 @@ class TestTypeSpecs(unittest.TestCase):
 
     def test_equivalent_runtime_definition_is_evaluated_once(self):
         suffix = uuid.uuid4().hex
-        counter = f"_pysr_definition_count_{suffix}"
+        counter = f"_mysr_definition_count_{suffix}"
         type_name = f"ReusedValue_{suffix}"
         operator = f"reused_identity_{suffix}"
         jl.seval(f"global {counter} = 0")
@@ -479,7 +479,7 @@ class TestTypeSpecs(unittest.TestCase):
             )
             with (
                 patch.object(
-                    PySRRegressor,
+                    MySRRegressor,
                     "_run",
                     side_effect=RuntimeError("search failed"),
                 ),
@@ -554,11 +554,11 @@ class TestTypeSpecs(unittest.TestCase):
             code = f"""
 import json
 import numpy as np
-from mysr import PySRRegressor, jl
+from mysr import MySRRegressor, jl
 type_module_name = {type_module_name!r}
 module_name = {module_name!r}
 assert not bool(jl.isdefined(jl.Main, jl.Symbol(type_module_name)))
-model = PySRRegressor.from_file(run_directory={str(run_directory)!r})
+model = MySRRegressor.from_file(run_directory={str(run_directory)!r})
 X = np.array([["a"], ["b"], ["a"], ["b"]], dtype=object)
 runtime = model._load_type_spec_runtime()
 print(json.dumps({{
@@ -870,8 +870,8 @@ print(json.dumps({{
 
     def test_module_loading_has_no_behavioral_hook_side_effects(self):
         suffix = uuid.uuid4().hex
-        init_count = f"_pysr_init_count_{suffix}"
-        mutate_count = f"_pysr_mutate_count_{suffix}"
+        init_count = f"_mysr_init_count_{suffix}"
+        mutate_count = f"_mysr_mutate_count_{suffix}"
         type_name = f"SideEffectValue_{suffix}"
         jl.seval(f"global {init_count} = 0; global {mutate_count} = 0")
         spec = string_spec(
@@ -1151,7 +1151,7 @@ print(json.dumps({{
                 encoding="utf-8",
             )
             with self.assertRaisesRegex(ValueError, "checkpoint.pkl"):
-                PySRRegressor.from_file(
+                MySRRegressor.from_file(
                     run_directory=directory,
                     type_spec=string_spec(),
                     operators={1: ["identity_value(x::StringValue) = x"]},
@@ -1273,7 +1273,7 @@ print(json.dumps({{
     def test_numeric_path_remains_independent(self):
         X = np.linspace(-1.0, 1.0, 20).reshape(-1, 1)
         y = X[:, 0]
-        model = PySRRegressor(
+        model = MySRRegressor(
             unary_operators=[],
             binary_operators=["+"],
             niterations=1,
@@ -1421,7 +1421,7 @@ print(json.dumps({{
             y_units=None,
         ):
             return prepare_type_spec_fit_data(
-                model or PySRRegressor(),
+                model or MySRRegressor(),
                 X,
                 y,
                 Xresampled,
@@ -1433,7 +1433,7 @@ print(json.dumps({{
             )
 
         with self.assertRaisesRegex(NotImplementedError, "denoising"):
-            prepare(model=PySRRegressor(denoise=True))
+            prepare(model=MySRRegressor(denoise=True))
         with self.assertRaisesRegex(ValueError, "2D array"):
             prepare(X=np.empty((1, 1, 1), dtype=object))
         with self.assertRaisesRegex(NotImplementedError, "one output"):
@@ -1448,13 +1448,13 @@ print(json.dumps({{
             prepare(X_units=["m"])
         with self.assertWarnsRegex(UserWarning, "reset to `None`"):
             prepare(X=pd.DataFrame({"a": ["a", "b"]}), variable_names=["a"])
-        model = PySRRegressor()
+        model = MySRRegressor()
         with self.assertWarnsRegex(UserWarning, "Spaces"):
             prepare(model=model, y=y.reshape(-1, 1), variable_names=["a b"])
         self.assertEqual(list(model.feature_names_in_), ["a_b"])
 
     def test_prediction_data_validation(self):
-        model = PySRRegressor()
+        model = MySRRegressor()
         model.n_features_in_ = 1
         model.selection_mask_ = None
         model.feature_names_in_ = np.array(["a_b"])

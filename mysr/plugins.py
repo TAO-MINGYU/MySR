@@ -1,4 +1,4 @@
-"""Plugin configurations for :class:`PySRRegressor`."""
+"""Plugin configurations for :class:`MySRRegressor`."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ class SimulatedAnnealingPlugin(AbstractPlugin):
 class AdaptiveParsimonyPlugin(AbstractPlugin):
     """Apply frequency-based parsimony during selection and mutation.
 
-    Enabled by default in PySR through ``use_frequency=True`` and
+    Enabled by default in MySR through ``use_frequency=True`` and
     ``use_frequency_in_tournament=True``.
     """
 
@@ -53,7 +53,7 @@ class AdaptiveParsimonyPlugin(AbstractPlugin):
 class AdaptiveMutationWeightsPlugin(AbstractPlugin):
     """Adapt mutation weights from their observed success rates.
 
-    Disabled by default in PySR.
+    Disabled by default in MySR.
     Learned runtime state is reinitialized for each call to ``fit``.
     """
 
@@ -73,7 +73,7 @@ class AdaptiveMutationWeightsPlugin(AbstractPlugin):
 class MutationBurstPlugin(AbstractPlugin):
     """Retry rejected mutations and optionally chain accepted mutations.
 
-    Disabled by default in PySR.
+    Disabled by default in MySR.
     """
 
     retry_attempts: int = 4

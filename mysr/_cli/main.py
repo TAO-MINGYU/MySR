@@ -63,7 +63,7 @@ TEST_OPTIONS = {"main", "jax", "torch", "autodiff", "cli", "dev", "startup", "sl
     help="Filter expressions to select specific tests.",
 )
 def _tests(tests, expressions):
-    """Run parts of the PySR test suite.
+    """Run parts of the MySR test suite.
 
     Choose from main, jax, torch, autodiff, cli, dev, startup, and slurm.
     You can give multiple tests, separated by commas.

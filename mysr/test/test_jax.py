@@ -9,7 +9,7 @@ import pandas as pd
 import sympy  # type: ignore
 
 import mysr
-from mysr import PySRRegressor, sympy2jax
+from mysr import MySRRegressor, sympy2jax
 
 
 class TestJAX(unittest.TestCase):
@@ -34,7 +34,7 @@ class TestJAX(unittest.TestCase):
 
         X = pd.DataFrame(np.random.randn(100, 10))
         y = np.ones(X.shape[0])
-        model = PySRRegressor(
+        model = MySRRegressor(
             progress=False,
             max_evals=10000,
             output_jax_format=True,
@@ -66,7 +66,7 @@ class TestJAX(unittest.TestCase):
     def test_pipeline(self):
         X = np.random.randn(100, 10)
         y = np.ones(X.shape[0])
-        model = PySRRegressor(progress=False, max_evals=10000, output_jax_format=True)
+        model = MySRRegressor(progress=False, max_evals=10000, output_jax_format=True)
         model.fit(X, y)
 
         equations = pd.DataFrame(
@@ -92,12 +92,12 @@ class TestJAX(unittest.TestCase):
         )
 
     def test_avoid_simplification(self):
-        ex = pysr.export_sympy.pysr2sympy(
+        ex = mysr.export_sympy.mysr2sympy(
             "square(exp(sign(0.44796443))) + 1.5 * x1",
             feature_names_in=["x1"],
             extra_sympy_mappings={"square": lambda x: x**2},
         )
-        f, params = pysr.export_jax.sympy2jax(ex, [sympy.symbols("x1")])
+        f, params = mysr.export_jax.sympy2jax(ex, [sympy.symbols("x1")])
         key = np.random.RandomState(0)
         X = key.randn(10, 1)
         np.testing.assert_almost_equal(
@@ -110,7 +110,7 @@ class TestJAX(unittest.TestCase):
         import sympy  # type: ignore
 
         E_plus_x1 = sympy.exp(1) + sympy.symbols("x1")
-        f, params = pysr.export_jax.sympy2jax(E_plus_x1, [sympy.symbols("x1")])
+        f, params = mysr.export_jax.sympy2jax(E_plus_x1, [sympy.symbols("x1")])
         key = np.random.RandomState(0)
         X = key.randn(10, 1)
         np.testing.assert_almost_equal(
@@ -130,7 +130,7 @@ class TestJAX(unittest.TestCase):
         y = X["k15"] ** 2 + 2 * cos_approx(X["k20"])
 
         with tempfile.TemporaryDirectory() as directory:
-            model = PySRRegressor(
+            model = MySRRegressor(
                 progress=False,
                 unary_operators=["cos_approx(x) = 1 - x^2 / 2 + x^4 / 24 + x^6 / 720"],
                 select_k_features=3,
@@ -157,8 +157,8 @@ class TestJAX(unittest.TestCase):
             run_directory = Path(directory) / "custom-jax-checkpoint"
             code = f"""
 import numpy as np
-from mysr import PySRRegressor
-model = PySRRegressor.from_file(run_directory={str(run_directory)!r})
+from mysr import MySRRegressor
+model = MySRRegressor.from_file(run_directory={str(run_directory)!r})
 f, parameters = model.jax().values()
 np.save({str(output_path)!r}, np.asarray(f(np.load({str(input_path)!r}), parameters)))
 """

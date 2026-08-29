@@ -24,13 +24,13 @@ def _run(cmd: list[str], *, cwd: Path | None = None, env: dict[str, str] | None 
 
 class TestSlurm(unittest.TestCase):
     def setUp(self):
-        if os.environ.get("PYSR_RUN_SLURM_TESTS", "").lower() not in {
+        if os.environ.get("MYSR_RUN_SLURM_TESTS", "").lower() not in {
             "1",
             "true",
             "yes",
         }:
             raise unittest.SkipTest(
-                "Set PYSR_RUN_SLURM_TESTS=1 to enable Slurm Docker tests."
+                "Set MYSR_RUN_SLURM_TESTS=1 to enable Slurm Docker tests."
             )
         if shutil.which("docker") is None:
             raise unittest.SkipTest("docker not found on PATH.")
@@ -38,15 +38,15 @@ class TestSlurm(unittest.TestCase):
         self.repo_root = Path(__file__).resolve().parent.parent.parent
         self.cluster_dir = Path(__file__).resolve().parent / "slurm_docker_cluster"
 
-        self.data_dir_obj = tempfile.TemporaryDirectory(prefix="pysr-slurm-data-")
+        self.data_dir_obj = tempfile.TemporaryDirectory(prefix="mysr-slurm-data-")
         self.addCleanup(self.data_dir_obj.cleanup)
         self.data_dir = Path(self.data_dir_obj.name).resolve()
 
         self.julia_depot_dir_obj = None
-        julia_depot_dir = os.environ.get("PYSR_SLURM_TEST_JULIA_DEPOT_DIR")
+        julia_depot_dir = os.environ.get("MYSR_SLURM_TEST_JULIA_DEPOT_DIR")
         if julia_depot_dir is None:
             self.julia_depot_dir_obj = tempfile.TemporaryDirectory(
-                prefix="pysr-slurm-julia-depot-"
+                prefix="mysr-slurm-julia-depot-"
             )
             self.addCleanup(self.julia_depot_dir_obj.cleanup)
             julia_depot_dir = self.julia_depot_dir_obj.name
@@ -54,10 +54,10 @@ class TestSlurm(unittest.TestCase):
         self.compose_env = dict(os.environ)
         # Uniquify per-test so parallel/unexpected leftovers don't collide.
         self.compose_env["COMPOSE_PROJECT_NAME"] = (
-            f"pysrslurm{os.getpid()}_{time.time_ns()}"
+            f"mysrslurm{os.getpid()}_{time.time_ns()}"
         )
-        self.compose_env["PYSR_SLURM_TEST_DATA_DIR"] = str(self.data_dir)
-        self.compose_env["PYSR_SLURM_TEST_JULIA_DEPOT_DIR"] = str(
+        self.compose_env["MYSR_SLURM_TEST_DATA_DIR"] = str(self.data_dir)
+        self.compose_env["MYSR_SLURM_TEST_JULIA_DEPOT_DIR"] = str(
             Path(julia_depot_dir).resolve()
         )
 
@@ -66,12 +66,12 @@ class TestSlurm(unittest.TestCase):
             raise unittest.SkipTest(f"Docker daemon not reachable:\n{info.stdout}")
 
         build = _run(
-            ["docker", "buildx", "bake", "-f", "docker-bake.hcl", "pysr-slurm"],
+            ["docker", "buildx", "bake", "-f", "docker-bake.hcl", "mysr-slurm"],
             cwd=self.repo_root,
             env=self.compose_env,
         )
         if build.returncode != 0:
-            raise RuntimeError(f"Failed to build pysr-slurm image:\n{build.stdout}")
+            raise RuntimeError(f"Failed to build mysr-slurm image:\n{build.stdout}")
 
         up = _run(
             ["docker", "compose", "up", "-d"],
@@ -145,13 +145,13 @@ class TestSlurm(unittest.TestCase):
                 )
             time.sleep(2)
 
-    def test_pysr_slurm_cluster_manager(self):
-        job_script = self.data_dir / "pysr_slurm_job.sh"
+    def test_mysr_slurm_cluster_manager(self):
+        job_script = self.data_dir / "mysr_slurm_job.sh"
         job_script.write_text(
             "\n".join(
                 [
                     "#!/bin/bash",
-                    "#SBATCH --job-name=pysr-slurm-test",
+                    "#SBATCH --job-name=mysr-slurm-test",
                     "#SBATCH --partition=normal",
                     "#SBATCH --nodes=2",
                     "#SBATCH --ntasks-per-node=2",
@@ -160,10 +160,10 @@ class TestSlurm(unittest.TestCase):
                     "export JULIA_DEBUG=SlurmClusterManager",
                     "python3 - <<'PY'",
                     "import numpy as np",
-                    "from mysr import PySRRegressor",
+                    "from mysr import MySRRegressor",
                     "X = np.random.RandomState(0).randn(30, 2)",
                     "y = X[:, 0] + 1.0",
-                    "model = PySRRegressor(",
+                    "model = MySRRegressor(",
                     "    niterations=3,",
                     "    populations=4,",
                     "    progress=False,",
@@ -174,7 +174,7 @@ class TestSlurm(unittest.TestCase):
                     "    verbosity=0,",
                     ")",
                     "model.fit(X, y)",
-                    "print('PYSR_SLURM_OK')",
+                    "print('MYSR_SLURM_OK')",
                     "PY",
                 ]
             )
@@ -285,7 +285,7 @@ class TestSlurm(unittest.TestCase):
             [2, 2],
             msg=output.stdout,
         )
-        self.assertIn("PYSR_SLURM_OK", output.stdout)
+        self.assertIn("MYSR_SLURM_OK", output.stdout)
 
 
 def runtests(just_tests=False):

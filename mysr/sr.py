@@ -1,4 +1,4 @@
-"""Define the PySRRegressor scikit-learn interface."""
+"""Define the MySRRegressor scikit-learn interface."""
 
 from __future__ import annotations
 
@@ -40,6 +40,11 @@ from .expression_specs import (
     AbstractExpressionSpec,
     ExpressionSpec,
     TemplateExpressionSpec,
+)
+from .feature_engineering import (
+    FeatureEngineeringConfig,
+    SurrogateFeatureEngineer,
+    coerce_feature_engineering_config,
 )
 from .feature_selection import run_feature_selection
 from .julia_extensions import load_required_packages
@@ -101,7 +106,7 @@ _CHECKPOINT_SCHEMA_VERSION = 3
 
 ALREADY_RAN = False
 
-pysr_logger = logging.getLogger(__name__)
+mysr_logger = logging.getLogger(__name__)
 
 
 def _process_constraints(
@@ -451,7 +456,7 @@ class _DynamicallySetParams:
     warmup_maxsize_by: float
 
 
-class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
+class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     """
     High-performance symbolic regression algorithm.
 
@@ -503,7 +508,7 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         a custom template for the expressions.
         Default is `ExpressionSpec()`.
     type_spec : TypeSpec
-        Declarative custom value type. PySR builds an isolated Julia wrapper,
+        Declarative custom value type. MySR builds an isolated Julia wrapper,
         interface methods, operators, and loss from this specification.
         Default is `None`, which uses the numeric path.
     niterations : int
@@ -860,7 +865,7 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         See :term:`Glossary <random_state>`.
         Default is `None`.
     deterministic : bool
-        Make a PySR search give the same result every run.
+        Make a MySR search give the same result every run.
         To use this, you must turn off parallelism
         (with `parallelism="serial"`),
         and set `random_state` to a fixed seed.
@@ -924,7 +929,7 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         Default is `True`.
     update: bool
         Whether to automatically update Julia packages when `fit` is called.
-        You should make sure that PySR is up-to-date itself first, as
+        You should make sure that MySR is up-to-date itself first, as
         the packaged Julia packages may not necessarily include all
         updated dependencies.
         Default is `False`.
@@ -959,13 +964,22 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         Default is `None`.
     denoise : bool
         Whether to use a Gaussian Process to denoise the data before
-        inputting to PySR. Can help PySR fit noisy data.
+        inputting to MySR. Can help MySR fit noisy data.
         Default is `False`.
     select_k_features : int
         Whether to run feature selection in Python using random forests,
         before passing to the symbolic regression code. None means no
         feature selection; an int means select that many features.
         Default is `None`.
+    auto_feature_engineering : bool
+        Whether to run MySR's automatic input feature-engineering stage before
+        feature selection and denoising. The default is `False`, which preserves
+        the existing preprocessing path.
+    feature_engineering_config : FeatureEngineeringConfig | dict | None
+        Configuration for automatic feature engineering. It is required when
+        `auto_feature_engineering=True`. The current implementation supports the
+        AI Feynman-inspired surrogate decomposition engine with
+        `formula_type="empirical"` and `mode="suggest"` or `mode="augment"`.
     **kwargs : dict
         Supports deprecated keyword arguments. Other arguments will
         result in an error.
@@ -988,6 +1002,12 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         Number of output dimensions.
     selection_mask_ : ndarray of shape (`n_features_in_`,)
         Mask of which features of `X` to use when `select_k_features` is set.
+    feature_engineering_report_ : dict | None
+        Surrogate quality, candidate scores, acceptance decisions, and rejection
+        reasons from the latest automatic feature-engineering run.
+    engineered_feature_expressions_ : dict[str, str]
+        Mapping from backend-safe generated feature names to expressions in the
+        user's original input variables.
     tempdir_ : Path | None
         Path to the temporary equations directory.
     julia_state_stream_ : ndarray
@@ -1009,12 +1029,12 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     --------
     ```python
     >>> import numpy as np
-    >>> from mysr import PySRRegressor
+    >>> from mysr import MySRRegressor
     >>> randstate = np.random.RandomState(0)
     >>> X = 2 * randstate.randn(100, 5)
     >>> # y = 2.5382 * cos(x_3) + x_0 - 0.5
     >>> y = 2.5382 * np.cos(X[:, 3]) + X[:, 0] ** 2 - 0.5
-    >>> model = PySRRegressor(
+    >>> model = MySRRegressor(
     ...     niterations=40,
     ...     binary_operators=["+", "*"],
     ...     unary_operators=[
@@ -1028,7 +1048,7 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     ... )
     >>> model.fit(X, y)
     >>> model
-    PySRRegressor.equations_ = [
+    MySRRegressor.equations_ = [
     0         0.000000                                          3.8552167  3.360272e+01           1
     1         1.189847                                          (x0 * x0)  3.110905e+00           3
     2         0.010626                          ((x0 * x0) + -0.25573406)  3.045491e+00           5
@@ -1055,6 +1075,11 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     y_units_: str | ArrayLike[str] | None
     nout_: int
     selection_mask_: NDArray[np.bool_] | None
+    raw_feature_names_in_: ArrayLike[str]
+    augmented_feature_names_: ArrayLike[str]
+    feature_engineer_: SurrogateFeatureEngineer | None
+    feature_engineering_report_: dict[str, Any] | None
+    engineered_feature_names_: list[str]
     run_id_: str
     output_directory_: str
     julia_state_stream_: NDArray[np.uint8] | None
@@ -1185,6 +1210,10 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         extra_jax_mappings: dict[Callable, str] | None = None,
         denoise: bool = False,
         select_k_features: int | None = None,
+        auto_feature_engineering: bool = False,
+        feature_engineering_config: FeatureEngineeringConfig
+        | dict[str, Any]
+        | None = None,
         **kwargs,
     ):
         # Hyperparameters
@@ -1308,6 +1337,8 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         # Pre-modelling transformation
         self.denoise = denoise
         self.select_k_features = select_k_features
+        self.auto_feature_engineering = auto_feature_engineering
+        self.feature_engineering_config = feature_engineering_config
 
         # Once all valid parameters have been assigned handle the
         # deprecated kwargs
@@ -1318,7 +1349,7 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                     updated_kwarg_name = DEPRECATED_KWARGS[k]
                     setattr(self, updated_kwarg_name, v)
                     warnings.warn(
-                        f"`{k}` has been renamed to `{updated_kwarg_name}` in PySRRegressor. "
+                        f"`{k}` has been renamed to `{updated_kwarg_name}` in MySRRegressor. "
                         "Please use that instead.",
                         FutureWarning,
                     )
@@ -1346,9 +1377,9 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                         FutureWarning,
                     )
                 else:
-                    suggested_keywords = _suggest_keywords(PySRRegressor, k)
+                    suggested_keywords = _suggest_keywords(MySRRegressor, k)
                     err_msg = (
-                        f"`{k}` is not a valid keyword argument for PySRRegressor."
+                        f"`{k}` is not a valid keyword argument for MySRRegressor."
                     )
                     if len(suggested_keywords) > 0:
                         err_msg += f" Did you mean {', '.join(map(lambda s: f'`{s}`', suggested_keywords))}?"
@@ -1367,8 +1398,8 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         feature_names_in: ArrayLike[str] | None = None,
         selection_mask: NDArray[np.bool_] | None = None,
         nout: int = 1,
-        **pysr_kwargs,
-    ) -> "PySRRegressor":
+        **mysr_kwargs,
+    ) -> "MySRRegressor":
         """
         Create a model from a saved model checkpoint or equation file.
 
@@ -1401,36 +1432,36 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             Number of outputs of the model.
             Not needed if loading from a pickle file.
             Default is `1`.
-        **pysr_kwargs : dict
-            Any other keyword arguments to initialize the PySRRegressor object.
+        **mysr_kwargs : dict
+            Any other keyword arguments to initialize the MySRRegressor object.
             These will overwrite those stored in the pickle file.
             Not needed if loading from a pickle file.
 
         Returns
         -------
-        model : PySRRegressor
+        model : MySRRegressor
             The model with fitted equations.
         """
         if equation_file is not None:
             raise ValueError(
                 "Passing `equation_file` is deprecated and no longer compatible with "
-                "the most recent versions of PySR's backend. Please pass `run_directory` "
+                "the most recent versions of MySR's backend. Please pass `run_directory` "
                 "instead, which contains all checkpoint files."
             )
 
         pkl_filename = Path(run_directory) / "checkpoint.pkl"
         if pkl_filename.exists():
-            pysr_logger.info(f"Attempting to load model from {pkl_filename}...")
+            mysr_logger.info(f"Attempting to load model from {pkl_filename}...")
             assert binary_operators is None
             assert unary_operators is None
             assert operators is None
             assert n_features_in is None
             with open(pkl_filename, "rb") as f:
-                model = cast("PySRRegressor", pkl.load(f))
+                model = cast("MySRRegressor", pkl.load(f))
 
             # Update any parameters if necessary, such as
             # extra_sympy_mappings:
-            model.set_params(**pysr_kwargs)
+            model.set_params(**mysr_kwargs)
 
             if "equations_" not in model.__dict__ or model.equations_ is None:
                 model.refresh()
@@ -1451,11 +1482,11 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
             return model
         else:
-            pysr_logger.info(
+            mysr_logger.info(
                 f"Checkpoint file {pkl_filename} does not exist. "
                 "Attempting to recreate model from scratch..."
             )
-            if pysr_kwargs.get("type_spec") is not None:
+            if mysr_kwargs.get("type_spec") is not None:
                 raise ValueError(
                     "TypeSpec models require the original `checkpoint.pkl`; "
                     "CSV-only reconstruction is not supported."
@@ -1481,7 +1512,7 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 binary_operators=binary_operators,
                 unary_operators=unary_operators,
                 operators=operators,
-                **pysr_kwargs,
+                **mysr_kwargs,
             )
             model.nout_ = nout
             model.n_features_in_ = n_features_in
@@ -1515,9 +1546,9 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         `model_selection`.
         """
         if not hasattr(self, "equations_") or self.equations_ is None:
-            return "PySRRegressor.equations_ = None"
+            return "MySRRegressor.equations_ = None"
 
-        output = "PySRRegressor.equations_ = [\n"
+        output = "MySRRegressor.equations_ = [\n"
 
         equations = self.equations_
         if not isinstance(equations, list):
@@ -1560,7 +1591,7 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
     def __getstate__(self) -> dict[str, Any]:
         """
-        Handle pickle serialization for PySRRegressor.
+        Handle pickle serialization for MySRRegressor.
 
         The Scikit-learn standard requires estimators to be serializable via
         `pickle.dumps()`. However, some attributes do not support pickling
@@ -1581,7 +1612,7 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 if show_pickle_warning:
                     warnings.warn(warn_msg)
                 else:
-                    pysr_logger.debug(warn_msg)
+                    mysr_logger.debug(warn_msg)
         state_keys_to_clear = [*state_keys_containing_lambdas, "logger_"]
         pickled_state = {
             key: (None if key in state_keys_to_clear else value)
@@ -1624,7 +1655,7 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         state.setdefault("type_spec", None)
         if schema_version != _CHECKPOINT_SCHEMA_VERSION:
             raise ValueError(
-                "Unsupported PySR checkpoint schema: "
+                "Unsupported MySR checkpoint schema: "
                 f"expected {_CHECKPOINT_SCHEMA_VERSION}, found {schema_version!r}."
             )
         self.__dict__.update(state)
@@ -1632,7 +1663,7 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     def _checkpoint(self):
         """Save the model's current state to a checkpoint file.
 
-        This should only be used internally by PySRRegressor.
+        This should only be used internally by MySRRegressor.
         """
         checkpoint_path = self.get_pkl_filename()
         previous_show_pickle_warnings = getattr(self, "show_pickle_warnings_", True)
@@ -1645,7 +1676,7 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 try:
                     pkl.dump(self, checkpoint_file)
                 except Exception as e:
-                    pysr_logger.debug(f"Error checkpointing model: {e}")
+                    mysr_logger.debug(f"Error checkpointing model: {e}")
                     return
             os.replace(temporary_path, checkpoint_path)
         finally:
@@ -1653,7 +1684,7 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             try:
                 temporary_path.unlink(missing_ok=True)
             except Exception as e:
-                pysr_logger.debug(f"Error cleaning up temporary checkpoint file: {e}")
+                mysr_logger.debug(f"Error cleaning up temporary checkpoint file: {e}")
 
     def get_pkl_filename(self) -> Path:
         path = Path(self.output_directory_) / self.run_id_ / "checkpoint.pkl"
@@ -1663,8 +1694,8 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     @property
     def equations(self):  # pragma: no cover
         warnings.warn(
-            "PySRRegressor.equations is now deprecated. "
-            "Please use PySRRegressor.equations_ instead.",
+            "MySRRegressor.equations is now deprecated. "
+            "Please use MySRRegressor.equations_ instead.",
             FutureWarning,
         )
         return self.equations_
@@ -1693,8 +1724,8 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     @property
     def raw_julia_state_(self):
         warnings.warn(
-            "PySRRegressor.raw_julia_state_ is now deprecated. "
-            "Please use PySRRegressor.julia_state_ instead, or julia_state_stream_ "
+            "MySRRegressor.raw_julia_state_ is now deprecated. "
+            "Please use MySRRegressor.julia_state_ instead, or julia_state_stream_ "
             "for the raw stream of bytes.",
             FutureWarning,
         )
@@ -1789,8 +1820,8 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     @property
     def equation_file_(self):
         raise NotImplementedError(
-            "PySRRegressor.equation_file_ is now deprecated. "
-            "Please use PySRRegressor.output_directory_ and PySRRegressor.run_id_ "
+            "MySRRegressor.equation_file_ is now deprecated. "
+            "Please use MySRRegressor.output_directory_ and MySRRegressor.run_id_ "
             "instead. For loading, you should pass `run_directory`."
         )
 
@@ -1945,12 +1976,12 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 "exponentially slower and use significant memory."
             )
         elif self.maxsize < 7:
-            raise ValueError("PySR requires a maxsize of at least 7")
+            raise ValueError("MySR requires a maxsize of at least 7")
 
         # NotImplementedError - Values that could be supported at a later time
         if self.optimizer_algorithm not in VALID_OPTIMIZER_ALGORITHMS:
             raise NotImplementedError(
-                f"PySR currently only supports the following optimizer algorithms: {VALID_OPTIMIZER_ALGORITHMS}"
+                f"MySR currently only supports the following optimizer algorithms: {VALID_OPTIMIZER_ALGORITHMS}"
             )
 
         param_container = _DynamicallySetParams(
@@ -2165,6 +2196,106 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         else:
             return {32: np.complex64, 64: np.complex128}[self.precision]
 
+    def _fit_auto_feature_engineering(
+        self,
+        X: ndarray,
+        y: ndarray,
+        Xresampled: ndarray | None,
+        variable_names: ArrayLike[str],
+        complexity_of_variables: int | float | list[int | float] | None,
+        X_units: ArrayLike[str] | None,
+        random_state: np.random.RandomState,
+    ) -> tuple[
+        ndarray,
+        ndarray | None,
+        ArrayLike[str],
+        int | float | list[int | float] | None,
+        ArrayLike[str] | None,
+    ]:
+        """Discover and optionally append replayable engineered input features."""
+
+        if self.feature_engineering_config is None:
+            raise ValueError(
+                "feature_engineering_config is required when "
+                "auto_feature_engineering=True"
+            )
+        config = coerce_feature_engineering_config(self.feature_engineering_config)
+        self.feature_engineering_config_ = config
+        if config.formula_type != "empirical":
+            raise NotImplementedError(
+                "The first automatic feature-engineering implementation supports "
+                "formula_type='empirical' only. Dimensional semi-theoretical and "
+                "theoretical modes are planned but are not silently approximated."
+            )
+        if config.feat_engine.enabled:
+            raise NotImplementedError(
+                "The FEAT-style engine has an independent switch but is not yet "
+                "implemented. Disable feat_engine for the AI Feynman-style branch."
+            )
+        if not config.surrogate_engine.enabled:
+            raise ValueError(
+                "At least one feature-engineering engine must be enabled"
+            )
+        if y.ndim != 1:
+            raise NotImplementedError(
+                "Automatic feature engineering currently supports single-output "
+                "regression only"
+            )
+
+        names = [str(name) for name in variable_names]
+        self.raw_feature_names_in_ = np.asarray(names, dtype=str)
+        self.raw_n_features_in_ = X.shape[1]
+        seed = int(random_state.randint(0, 2**31 - 1))
+        engineer = SurrogateFeatureEngineer(
+            config.surrogate_engine,
+            random_state=seed,
+        ).fit(X, y, variable_names=names)
+        self.feature_engineer_ = engineer
+        self.feature_engineering_report_ = copy.deepcopy(engineer.report_)
+        self.engineered_feature_names_ = [
+            proposal.name for proposal in engineer.accepted_proposals_
+        ]
+        self.engineered_feature_expressions_ = {
+            proposal.name: proposal.expression
+            for proposal in engineer.accepted_proposals_
+        }
+
+        if config.mode == "suggest":
+            self.augmented_feature_names_ = np.asarray(names, dtype=str)
+            return X, Xresampled, variable_names, complexity_of_variables, X_units
+
+        augmented_names = engineer.get_feature_names_out()
+        collisions = set(names).intersection(self.engineered_feature_names_)
+        if collisions:
+            raise ValueError(
+                "Generated feature names collide with input variable names: "
+                + ", ".join(sorted(collisions))
+            )
+        X = engineer.transform(X, augment=True)
+        if Xresampled is not None:
+            Xresampled = engineer.transform(Xresampled, augment=True)
+        variable_names = cast(ArrayLike[str], augmented_names)
+        self.augmented_feature_names_ = np.asarray(augmented_names, dtype=str)
+        self.feature_names_in_ = self.augmented_feature_names_
+        self.display_feature_names_in_ = self.feature_names_in_
+
+        if isinstance(complexity_of_variables, list):
+            complexity_of_variables = complexity_of_variables + [
+                proposal.complexity for proposal in engineer.accepted_proposals_
+            ]
+            self.complexity_of_variables_ = copy.deepcopy(complexity_of_variables)
+
+        if X_units is not None:
+            units = [str(unit) for unit in X_units]
+            units.extend(
+                proposal.unit_expression(units[: self.raw_n_features_in_])
+                for proposal in engineer.accepted_proposals_
+            )
+            X_units = cast(ArrayLike[str], units)
+            self.X_units_ = copy.deepcopy(X_units)
+
+        return X, Xresampled, variable_names, complexity_of_variables, X_units
+
     def _pre_transform_training_data(
         self,
         X: ndarray,
@@ -2226,6 +2357,20 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         y_units_transformed : str | list[str] of length n_out
             Units of each variable in the transformed dataset.
         """
+        # Automatic feature engineering precedes selection and denoising.
+        if self.auto_feature_engineering:
+            X, Xresampled, variable_names, complexity_of_variables, X_units = (
+                self._fit_auto_feature_engineering(
+                    X,
+                    y,
+                    Xresampled,
+                    variable_names,
+                    complexity_of_variables,
+                    X_units,
+                    random_state,
+                )
+            )
+
         # Feature selection transformation
         if self.select_k_features:
             selection_mask = run_feature_selection(
@@ -2267,7 +2412,9 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             self.selection_mask_ = selection_mask
             self.feature_names_in_ = _check_feature_names_in(self, variable_names)
             self.display_feature_names_in_ = self.feature_names_in_
-            pysr_logger.info(f"Using features {self.feature_names_in_}")
+            mysr_logger.info(f"Using features {self.feature_names_in_}")
+
+        self.search_feature_names_ = np.asarray(variable_names, dtype=str)
 
         # Denoising transformation
         if self.denoise:
@@ -2327,7 +2474,7 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             Raised when the julia backend fails to import a package.
         """
         # Need to be global as we don't want to recreate/reinstate julia for
-        # every new instance of PySRRegressor
+        # every new instance of MySRRegressor
         global ALREADY_RAN
 
         definition_module = (
@@ -2368,7 +2515,7 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
         # Start julia backend processes
         if not ALREADY_RAN and runtime_params.update_verbosity != 0:
-            pysr_logger.info("Compiling Julia backend...")
+            mysr_logger.info("Compiling Julia backend...")
 
         if self.deterministic and parallelism != "serial":
             raise ValueError(
@@ -2418,7 +2565,7 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 nested_constraints_str += "), "
             nested_constraints_str += ")"
             nested_constraints = jl.Base.include_string(
-                definition_module, nested_constraints_str, "PySR nested_constraints"
+                definition_module, nested_constraints_str, "MySR nested_constraints"
             )
 
         # Parse dict into Julia Dict for complexities:
@@ -2430,7 +2577,7 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             complexity_of_operators = jl.Base.include_string(
                 definition_module,
                 complexity_of_operators_str,
-                "PySR complexity_of_operators",
+                "MySR complexity_of_operators",
             )
         # TODO: Refactor this into helper function
 
@@ -2776,7 +2923,7 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         complexity_of_variables: int | float | list[int | float] | None = None,
         X_units: ArrayLike[str] | None = None,
         y_units: str | ArrayLike[str] | None = None,
-    ) -> "PySRRegressor":
+    ) -> "MySRRegressor":
         """
         Search for equations to fit the dataset and store them in `self.equations_`.
 
@@ -2817,6 +2964,22 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         self : object
             Fitted estimator.
         """
+        if not isinstance(self.auto_feature_engineering, bool):
+            raise TypeError("auto_feature_engineering must be a bool")
+        if self.auto_feature_engineering:
+            if self.type_spec is not None:
+                raise NotImplementedError(
+                    "Automatic feature engineering does not yet support type_spec"
+                )
+            if weights is not None:
+                raise NotImplementedError(
+                    "Automatic feature engineering does not yet support sample weights"
+                )
+            if self.warm_start:
+                raise NotImplementedError(
+                    "Automatic feature engineering does not yet support warm_start"
+                )
+
         # Init attributes that are not specified in BaseEstimator
         if self.warm_start and hasattr(self, "julia_state_stream_"):
             pass
@@ -2836,6 +2999,12 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             self.complexity_of_variables_ = None
             self.X_units_ = None
             self.y_units_ = None
+            self.feature_engineer_ = None
+            self.feature_engineering_report_ = None
+            self.engineered_feature_names_ = []
+            self.engineered_feature_expressions_ = {}
+            self.augmented_feature_names_ = None
+            self.search_feature_names_ = None
             if hasattr(self, "_type_spec_runtime_definition_"):
                 del self._type_spec_runtime_definition_
 
@@ -2995,11 +3164,6 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         else:
             if not isinstance(X, pd.DataFrame):
                 X = pd.DataFrame(check_array(X))
-            if isinstance(X.columns, pd.RangeIndex):
-                if self.selection_mask_ is not None:
-                    X = X[X.columns[self.selection_mask_]]
-                X.columns = self.feature_names_in_
-
             columns = X.columns.astype(str)
             if columns.str.contains(" ").any():
                 X = X.copy()
@@ -3009,8 +3173,42 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                     "Spaces have been replaced with underscores. \n"
                     "Please rename the columns to valid names."
                 )
-            X = X.reindex(columns=self.feature_names_in_)
-            X = self._validate_data_X(X)
+
+            if (
+                self.auto_feature_engineering
+                and self.feature_engineer_ is not None
+                and getattr(self, "feature_engineering_config_", None) is not None
+                and self.feature_engineering_config_.mode == "augment"
+            ):
+                raw_names = pd.Index(self.raw_feature_names_in_)
+                if isinstance(X.columns, pd.RangeIndex):
+                    if X.shape[1] != len(raw_names):
+                        raise ValueError(
+                            "Prediction X must contain the original number of features "
+                            "when automatic feature engineering is enabled"
+                        )
+                    X.columns = raw_names
+                else:
+                    X = X.reindex(columns=raw_names)
+                X_values = check_array(X)
+                X_augmented = self.feature_engineer_.transform(
+                    X_values,
+                    augment=True,
+                )
+                X = pd.DataFrame(
+                    X_augmented,
+                    columns=pd.Index(self.augmented_feature_names_),
+                )
+                if self.selection_mask_ is not None:
+                    X = X.iloc[:, self.selection_mask_]
+                X.columns = self.feature_names_in_
+            else:
+                if isinstance(X.columns, pd.RangeIndex):
+                    if self.selection_mask_ is not None:
+                        X = X[X.columns[self.selection_mask_]]
+                    X.columns = self.feature_names_in_
+                X = X.reindex(columns=self.feature_names_in_)
+                X = self._validate_data_X(X)
             if self.expression_spec_.evaluates_in_julia:
                 X = X.astype(self._get_precision_mapped_dtype(X))
 
@@ -3242,7 +3440,7 @@ class PySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         """Get the equations from a hall of fame file or search output.
 
         If no arguments entered, the ones used
-        previously from a call to PySR will be used.
+        previously from a call to MySR will be used.
         """
         check_is_fitted(
             self,

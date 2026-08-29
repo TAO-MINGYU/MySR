@@ -1,4 +1,4 @@
-"""Mutation configurations for :class:`PySRRegressor`."""
+"""Mutation configurations for :class:`MySRRegressor`."""
 
 from __future__ import annotations
 

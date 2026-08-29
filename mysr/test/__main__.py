@@ -1,4 +1,4 @@
-"""CLI for running PySR's test suite."""
+"""CLI for running MySR's test suite."""
 
 import argparse
 
@@ -10,5 +10,5 @@ if __name__ == "__main__":
     parser.add_argument(
         "test",
         nargs="*",
-        help="DEPRECATED. Use `python -m pysr test [tests...]` instead.",
+        help="DEPRECATED. Use `python -m mysr test [tests...]` instead.",
     )

@@ -9,7 +9,7 @@ def install(*args, **kwargs):
     del args, kwargs
     warnings.warn(
         "The `install` function has been removed. "
-        "PySR now uses the `juliacall` package to install its dependencies automatically at import time. ",
+        "MySR now uses the `juliacall` package to install its dependencies automatically at import time. ",
         FutureWarning,
     )
 
@@ -24,24 +24,10 @@ def init_julia(*args, **kwargs):
     return jl
 
 
-def pysr(X, y, weights=None, **kwargs):  # pragma: no cover
-    from .sr import PySRRegressor
-
-    warnings.warn(
-        "Calling `pysr` is deprecated. "
-        "Please use `model = PySRRegressor(**params); "
-        "model.fit(X, y)` going forward.",
-        FutureWarning,
-    )
-    model = PySRRegressor(**kwargs)
-    model.fit(X, y, weights=weights)
-    return model.equations_
-
-
 def best(*args, **kwargs):  # pragma: no cover
     raise NotImplementedError(
         "`best` has been deprecated. "
-        "Please use the `PySRRegressor` interface. "
+        "Please use the `MySRRegressor` interface. "
         "After fitting, you can return `.sympy()` "
         "to get the sympy representation "
         "of the best equation."
@@ -51,7 +37,7 @@ def best(*args, **kwargs):  # pragma: no cover
 def best_row(*args, **kwargs):  # pragma: no cover
     raise NotImplementedError(
         "`best_row` has been deprecated. "
-        "Please use the `PySRRegressor` interface. "
+        "Please use the `MySRRegressor` interface. "
         "After fitting, you can run `print(model)` to view the best equation, "
         "or "
         "`model.get_best()` to return the best equation's "
@@ -62,7 +48,7 @@ def best_row(*args, **kwargs):  # pragma: no cover
 def best_tex(*args, **kwargs):  # pragma: no cover
     raise NotImplementedError(
         "`best_tex` has been deprecated. "
-        "Please use the `PySRRegressor` interface. "
+        "Please use the `MySRRegressor` interface. "
         "After fitting, you can return `.latex()` to "
         "get the sympy representation "
         "of the best equation."
@@ -71,7 +57,7 @@ def best_tex(*args, **kwargs):  # pragma: no cover
 
 def best_callable(*args, **kwargs):  # pragma: no cover
     raise NotImplementedError(
-        "`best_callable` has been deprecated. Please use the `PySRRegressor` "
+        "`best_callable` has been deprecated. Please use the `MySRRegressor` "
         "interface. After fitting, you can use "
         "`.predict(X)` to use the best callable."
     )
