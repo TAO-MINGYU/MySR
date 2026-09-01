@@ -1,5 +1,17 @@
 # Fork changes
 
+## 2026-09-01 - MySR 1.0.0
+
+- Promoted the MySRCore-backed dimensional search and formula-type contract to the
+  first stable MySR release.
+- Added formula-type-aware AI Feynman-inspired and FEAT-like feature engineering,
+  including replayable AST expressions, dimension metadata, and user-configurable
+  variable/operator complexity.
+- Removed the inherited `X_units`, `y_units`, `dimensional_constraint_penalty`, and
+  `dimensionless_constants_only` interfaces; the public contract now uses explicit
+  `X_dimensions` and `y_dimensions` only.
+- Pinned the Python frontend to the matching MySRCore.jl `v1.0.0` release.
+
 ## 2026-08-29 - MySR 0.2.0
 
 - Renamed the MySR-owned public and implementation regressor class to

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mysr"
-version = "0.2.0"
+version = "1.0.0"
 authors = [
     {name = "Mingyu Tao"},
     {name = "Miles Cranmer", email = "miles.cranmer@gmail.com"},
@@ -38,6 +38,9 @@ Repository = "https://github.com/TAO-MINGYU/MySR"
 Backend = "https://github.com/TAO-MINGYU/MySRCore.jl"
 
 [project.optional-dependencies]
+rnn = [
+    "torch>=2.7,<3",
+]
 docs = [
     "docstring-parser>=0.17.0",
     "pyyaml>=6.0.0",

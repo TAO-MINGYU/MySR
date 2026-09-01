@@ -20,7 +20,7 @@ class TestJuliaPkgConfig(unittest.TestCase):
 
         self.assertEqual(package["uuid"], MYSRCORE_UUID)
         self.assertEqual(package["url"], MYSRCORE_URL)
-        self.assertEqual(package["rev"], "v0.1.0")
+        self.assertEqual(package["rev"], "v1.0.0")
         self.assertEqual(package["preferences"], {"precompile_float64": False})
         self.assertNotIn("path", package)
         self.assertNotIn("dev", package)

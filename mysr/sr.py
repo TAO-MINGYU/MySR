@@ -24,11 +24,20 @@ from numpy import ndarray
 from numpy.typing import NDArray
 from sklearn.base import BaseEstimator, MultiOutputMixin, RegressorMixin
 from sklearn.utils import check_array, check_consistent_length, check_random_state
-from sklearn.utils.validation import _check_feature_names_in  # type: ignore
-from sklearn.utils.validation import check_is_fitted
+from sklearn.utils.validation import (
+    _check_feature_names_in,  # type: ignore
+    check_is_fitted,
+)
 
 from .denoising import denoise, multi_denoise
 from .deprecated import DEPRECATED_KWARGS
+from .dimensions import (
+    DIMENSION_BASIS,
+    DimensionVector,
+    _looks_like_vector,
+    normalize_input_dimensions,
+    normalize_output_dimensions,
+)
 from .export_latex import (
     sympy2latex,
     sympy2latextable,
@@ -41,7 +50,10 @@ from .expression_specs import (
     ExpressionSpec,
     TemplateExpressionSpec,
 )
+from .feat_engine import FEATLikeFeatureEngineer, FeatureEngineeringEnsemble
 from .feature_engineering import (
+    FeatureComplexitySpec,
+    FeatureDimensionSpec,
     FeatureEngineeringConfig,
     SurrogateFeatureEngineer,
     coerce_feature_engineering_config,
@@ -247,8 +259,8 @@ def _check_assertions(
     complexity_of_variables,
     weights,
     y,
-    X_units,
-    y_units,
+    X_dimensions,
+    y_dimensions,
     supports_sympy,
 ):
     # Check for potential errors before they happen
@@ -279,23 +291,28 @@ def _check_assertions(
         raise ValueError(
             "The number of elements in `complexity_of_variables` must equal the number of features in `X`."
         )
-    if X_units is not None and len(X_units) != X.shape[1]:
-        raise ValueError(
-            "The number of units in `X_units` must equal the number of features in `X`."
-        )
-    if y_units is not None:
-        good_y_units = False
-        if isinstance(y_units, list):
-            if len(y.shape) == 1:
-                good_y_units = len(y_units) == 1
-            else:
-                good_y_units = len(y_units) == y.shape[1]
+    if X_dimensions is not None:
+        if isinstance(X_dimensions, Mapping) or _looks_like_vector(X_dimensions):
+            valid_x_dimensions = X.shape[1] == 1
         else:
-            good_y_units = len(y.shape) == 1 or y.shape[1] == 1
-
-        if not good_y_units:
+            valid_x_dimensions = len(X_dimensions) == X.shape[1]
+        if not valid_x_dimensions:
             raise ValueError(
-                "The number of units in `y_units` must equal the number of output features in `y`."
+                "The number of dimensions in `X_dimensions` must equal the number of features in `X`."
+            )
+    if y_dimensions is not None:
+        good_y_dimensions = False
+        if isinstance(y_dimensions, Mapping) or _looks_like_vector(y_dimensions):
+            good_y_dimensions = len(y.shape) == 1 or y.shape[1] == 1
+        else:
+            try:
+                expected_outputs = 1 if len(y.shape) == 1 else y.shape[1]
+                good_y_dimensions = len(y_dimensions) == expected_outputs
+            except TypeError:
+                good_y_dimensions = False
+        if not good_y_dimensions:
+            raise ValueError(
+                "The number of dimensions in `y_dimensions` must equal the number of output features in `y`."
             )
 
 
@@ -416,8 +433,8 @@ _WARM_START_MUTABLE_STATE = (
     "feature_names_in_",
     "display_feature_names_in_",
     "complexity_of_variables_",
-    "X_units_",
-    "y_units_",
+    "X_dimensions_",
+    "y_dimensions_",
 )
 
 
@@ -643,12 +660,14 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     parsimony : float
         Multiplicative factor for how much to punish complexity.
         Default is `0.0`.
-    dimensional_constraint_penalty : float
-        Additive penalty for if dimensional analysis of an expression fails.
-        By default, this is `1000.0`.
-    dimensionless_constants_only : bool
-        Whether to only search for dimensionless constants, if using units.
-        Default is `False`.
+    formula_type : {"empirical", "semi_theoretical", "theoretical"}
+        Dimensional search contract passed to MySRCore. ``empirical`` disables
+        dimensional rejection; ``theoretical`` enforces dimensional validity
+        during search.
+        ``semi_theoretical`` enforces dimensional validity inside the internal
+        expression ``f(X; θ)`` and represents the public result as
+        ``C_dim * f``. It requires ``X_dimensions`` and ``y_dimensions`` at fit time and
+        constant optimization enabled.
     use_frequency : bool
         Whether to measure the frequency of complexities, and use that
         instead of parsimony to explore equation space. Will naturally
@@ -691,6 +710,62 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     fraction_replaced_guesses : float
         How much of the population to replace with migrating equations from
         guesses. Default is `0.001`.
+    rnn_gpsr_seeding : bool
+        Enable data-informed initial population seeding. A trainable PyTorch
+        LSTM/GRU learns from backend-evaluated expression sequences and generates
+        syntax-complete proposals autoregressively. MySRCore verifies them with
+        the real loss before bounded GP-SR pre-evolution. Default is `False`.
+        Requires the `rnn` extra.
+    rnn_gpsr_seed_fraction : float
+        Fraction of each formal initial population replaced by RNN-GPSR seed
+        members. Default is `0.5`.
+    rnn_gpsr_candidate_count : int
+        Number of evaluated expression individuals used to fit the recurrent
+        generator. Default is `128`.
+    rnn_gpsr_proposal_count : int
+        Number of expression individuals requested from the recurrent generator
+        per feedback round. Default is `128`.
+    rnn_hidden_size : int
+        Hidden-state width of the PyTorch recurrent generator. Default is `32`.
+    rnn_cell : {"lstm", "gru"}
+        Recurrent cell used by the PyTorch generator. Default is `"lstm"`.
+    rnn_embedding_size : int
+        Token embedding width. Default is `16`.
+    rnn_num_layers : int
+        Number of recurrent layers. Default is `1`.
+    rnn_learning_rate : float
+        AdamW learning rate. Default is `1e-3`.
+    rnn_weight_decay : float
+        AdamW weight decay. Default is `1e-4`.
+    rnn_epochs : int
+        Maximum training epochs per RNN-GPSR round. Early stopping may use fewer.
+        Default is `64`.
+    rnn_patience : int
+        Number of epochs without held-out improvement before stopping RNN training.
+        Default is `12`.
+    rnn_entropy_weight : float
+        Entropy regularization weight used to discourage premature collapse of the
+        expression proposal distribution. Default is `0.005`.
+    rnn_validation_fraction : float
+        Fraction of evaluated expressions held out to validate neural ranking.
+        Default is `0.2`.
+    rnn_min_validation_spearman : float
+        Minimum held-out Spearman rank correlation required before neural scores
+        may guide proposal selection. Default is `0.05`.
+    rnn_top_fraction : float
+        Fraction of best-cost expressions emphasized in the quality-weighted
+        autoregressive loss, inspired by risk-seeking DSO training. Default is `0.2`.
+    rnn_gpsr_cycles : int
+        Number of lightweight GP-SR cycles per neural/GP feedback round.
+        Default is `4`.
+    rnn_gpsr_rounds : int
+        Number of RNN → GP-SR → elite-feedback rounds. Default is `2`.
+    rnn_gpsr_quality_gate : bool
+        Evaluate a random control group under the same candidate budget and retain
+        whichever group has better real-loss quality before GP-SR. Default is `True`.
+    rnn_gpsr_maxsize : int | None
+        Maximum expression complexity during population seeding. `None` uses
+        `min(maxsize, 7)`.
     weight_add_node : float | None
         Relative likelihood for mutation to add a node.
         Default is `None` (mapping to `2.47`).
@@ -977,9 +1052,13 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         the existing preprocessing path.
     feature_engineering_config : FeatureEngineeringConfig | dict | None
         Configuration for automatic feature engineering. It is required when
-        `auto_feature_engineering=True`. The current implementation supports the
-        AI Feynman-inspired surrogate decomposition engine with
-        `formula_type="empirical"` and `mode="suggest"` or `mode="augment"`.
+        `auto_feature_engineering=True`. The AI Feynman-inspired surrogate
+        decomposition engine and the independent lightweight FEAT-like
+        evolutionary representation engine support `mode="suggest"` and
+        `mode="augment"`. `empirical` skips hard dimensional screening;
+        `semi_theoretical` and `theoretical` require `X_dimensions`/`y_dimensions` and
+        screen intermediate feature expressions with MySRCore's dimensional
+        runtime before injection.
     **kwargs : dict
         Supports deprecated keyword arguments. Other arguments will
         result in an error.
@@ -994,10 +1073,10 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         has feature names that are all strings.
     display_feature_names_in_ : ndarray of shape (`n_features_in_`,)
         Pretty names of features, used only during printing.
-    X_units_ : list[str] of length n_features
-        Units of each variable in the training dataset, `X`.
-    y_units_ : str | list[str] of length n_out
-        Units of each variable in the training dataset, `y`.
+    X_dimensions_ : list[tuple[float, ...]] of length n_features
+        Dimension exponent vectors for the input variables.
+    y_dimensions_ : tuple[float, ...] | list[tuple[float, ...]]
+        Dimension exponent vector(s) for the target variable(s).
     nout_ : int
         Number of output dimensions.
     selection_mask_ : ndarray of shape (`n_features_in_`,)
@@ -1071,8 +1150,9 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     feature_names_in_: ArrayLike[str]
     display_feature_names_in_: ArrayLike[str]
     complexity_of_variables_: int | float | list[int | float] | None
-    X_units_: ArrayLike[str] | None
-    y_units_: str | ArrayLike[str] | None
+    formula_type: Literal["empirical", "semi_theoretical", "theoretical"]
+    X_dimensions_: list[DimensionVector] | None
+    y_dimensions_: DimensionVector | list[DimensionVector] | None
     nout_: int
     selection_mask_: NDArray[np.bool_] | None
     raw_feature_names_in_: ArrayLike[str]
@@ -1080,6 +1160,9 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     feature_engineer_: SurrogateFeatureEngineer | None
     feature_engineering_report_: dict[str, Any] | None
     engineered_feature_names_: list[str]
+    engineered_feature_complexities_: list[float]
+    engineered_feature_dimensions_: list[str | None]
+    engineered_feature_metadata_: list[dict[str, Any]]
     run_id_: str
     output_directory_: str
     julia_state_stream_: NDArray[np.uint8] | None
@@ -1117,8 +1200,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         complexity_of_variables: int | float | list[int | float] | None = None,
         complexity_mapping: str | None = None,
         parsimony: float = 0.0,
-        dimensional_constraint_penalty: float | None = None,
-        dimensionless_constants_only: bool = False,
+        formula_type: Literal["empirical", "semi_theoretical", "theoretical"] = "empirical",
         use_frequency: bool = True,
         use_frequency_in_tournament: bool = True,
         adaptive_parsimony_scaling: float = 1040.0,
@@ -1129,6 +1211,26 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         fraction_replaced: float = 0.00036,
         fraction_replaced_hof: float = 0.0614,
         fraction_replaced_guesses: float = 0.001,
+        rnn_gpsr_seeding: bool = False,
+        rnn_gpsr_seed_fraction: float = 0.5,
+        rnn_gpsr_candidate_count: int = 128,
+        rnn_gpsr_proposal_count: int = 128,
+        rnn_hidden_size: int = 32,
+        rnn_cell: Literal["lstm", "gru"] = "lstm",
+        rnn_embedding_size: int = 16,
+        rnn_num_layers: int = 1,
+        rnn_learning_rate: float = 1.0e-3,
+        rnn_weight_decay: float = 1.0e-4,
+        rnn_epochs: int = 64,
+        rnn_patience: int = 12,
+        rnn_entropy_weight: float = 0.005,
+        rnn_validation_fraction: float = 0.2,
+        rnn_min_validation_spearman: float = 0.05,
+        rnn_top_fraction: float = 0.2,
+        rnn_gpsr_cycles: int = 4,
+        rnn_gpsr_rounds: int = 2,
+        rnn_gpsr_quality_gate: bool = True,
+        rnn_gpsr_maxsize: int | None = None,
         weight_add_node: float | None = None,
         weight_insert_node: float | None = None,
         weight_delete_node: float | None = None,
@@ -1249,8 +1351,15 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         self.complexity_of_variables = complexity_of_variables
         self.complexity_mapping = complexity_mapping
         self.parsimony = parsimony
-        self.dimensional_constraint_penalty = dimensional_constraint_penalty
-        self.dimensionless_constants_only = dimensionless_constants_only
+        if formula_type not in {
+            "empirical",
+            "semi_theoretical",
+            "theoretical",
+        }:
+            raise ValueError(
+                "formula_type must be 'empirical', 'semi_theoretical', or 'theoretical'"
+            )
+        self.formula_type = formula_type
         self.use_frequency = use_frequency
         self.use_frequency_in_tournament = use_frequency_in_tournament
         self.adaptive_parsimony_scaling = adaptive_parsimony_scaling
@@ -1281,6 +1390,26 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         self.fraction_replaced = fraction_replaced
         self.fraction_replaced_hof = fraction_replaced_hof
         self.fraction_replaced_guesses = fraction_replaced_guesses
+        self.rnn_gpsr_seeding = rnn_gpsr_seeding
+        self.rnn_gpsr_seed_fraction = rnn_gpsr_seed_fraction
+        self.rnn_gpsr_candidate_count = rnn_gpsr_candidate_count
+        self.rnn_gpsr_proposal_count = rnn_gpsr_proposal_count
+        self.rnn_hidden_size = rnn_hidden_size
+        self.rnn_cell = rnn_cell
+        self.rnn_embedding_size = rnn_embedding_size
+        self.rnn_num_layers = rnn_num_layers
+        self.rnn_learning_rate = rnn_learning_rate
+        self.rnn_weight_decay = rnn_weight_decay
+        self.rnn_epochs = rnn_epochs
+        self.rnn_patience = rnn_patience
+        self.rnn_entropy_weight = rnn_entropy_weight
+        self.rnn_validation_fraction = rnn_validation_fraction
+        self.rnn_min_validation_spearman = rnn_min_validation_spearman
+        self.rnn_top_fraction = rnn_top_fraction
+        self.rnn_gpsr_cycles = rnn_gpsr_cycles
+        self.rnn_gpsr_rounds = rnn_gpsr_rounds
+        self.rnn_gpsr_quality_gate = rnn_gpsr_quality_gate
+        self.rnn_gpsr_maxsize = rnn_gpsr_maxsize
         self.topn = topn
         # -- Constants parameters
         self.should_optimize_constants = should_optimize_constants
@@ -1969,6 +2098,48 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             raise ValueError(
                 "`tournament_selection_n` parameter must be smaller than `population_size`."
             )
+        if not isinstance(self.rnn_gpsr_seeding, bool):
+            raise TypeError("`rnn_gpsr_seeding` must be a bool")
+        if not 0.0 <= self.rnn_gpsr_seed_fraction <= 1.0:
+            raise ValueError("`rnn_gpsr_seed_fraction` must be in [0, 1]")
+        if self.rnn_gpsr_candidate_count < 8:
+            raise ValueError("`rnn_gpsr_candidate_count` must be at least 8")
+        if self.rnn_gpsr_proposal_count < 1:
+            raise ValueError("`rnn_gpsr_proposal_count` must be positive")
+        if self.rnn_hidden_size < 1:
+            raise ValueError("`rnn_hidden_size` must be positive")
+        if self.rnn_cell not in ("lstm", "gru"):
+            raise ValueError("`rnn_cell` must be either 'lstm' or 'gru'")
+        if self.rnn_embedding_size < 1:
+            raise ValueError("`rnn_embedding_size` must be positive")
+        if self.rnn_num_layers < 1:
+            raise ValueError("`rnn_num_layers` must be positive")
+        if self.rnn_learning_rate <= 0.0:
+            raise ValueError("`rnn_learning_rate` must be positive")
+        if self.rnn_weight_decay < 0.0:
+            raise ValueError("`rnn_weight_decay` must be non-negative")
+        if self.rnn_epochs < 1:
+            raise ValueError("`rnn_epochs` must be positive")
+        if self.rnn_patience < 1:
+            raise ValueError("`rnn_patience` must be positive")
+        if self.rnn_entropy_weight < 0.0:
+            raise ValueError("`rnn_entropy_weight` must be non-negative")
+        if not 0.0 < self.rnn_validation_fraction < 0.5:
+            raise ValueError("`rnn_validation_fraction` must be in (0, 0.5)")
+        if not -1.0 <= self.rnn_min_validation_spearman <= 1.0:
+            raise ValueError("`rnn_min_validation_spearman` must be in [-1, 1]")
+        if not 0.0 < self.rnn_top_fraction <= 1.0:
+            raise ValueError("`rnn_top_fraction` must be in (0, 1]")
+        if self.rnn_gpsr_cycles < 0:
+            raise ValueError("`rnn_gpsr_cycles` must be non-negative")
+        if self.rnn_gpsr_rounds < 1:
+            raise ValueError("`rnn_gpsr_rounds` must be positive")
+        if not isinstance(self.rnn_gpsr_quality_gate, bool):
+            raise TypeError("`rnn_gpsr_quality_gate` must be a bool")
+        if self.rnn_gpsr_maxsize is not None and not (
+            1 <= self.rnn_gpsr_maxsize <= self.maxsize
+        ):
+            raise ValueError("`rnn_gpsr_maxsize` must be in [1, maxsize]")
 
         if self.maxsize > 40:
             warnings.warn(
@@ -2024,8 +2195,8 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         weights,
         variable_names,
         complexity_of_variables,
-        X_units,
-        y_units,
+        X_dimensions,
+        y_dimensions,
     ) -> tuple[
         ndarray,
         ndarray,
@@ -2059,10 +2230,10 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             Names of each feature in the training dataset, `X`.
         complexity_of_variables : int | float | list[int | float]
             Complexity of each feature in the training dataset, `X`.
-        X_units : list[str] of length n_features
-            Units of each feature in the training dataset, `X`.
-        y_units : str | list[str] of length n_out
-            Units of each feature in the training dataset, `y`.
+        X_dimensions : list[dimension vectors] of length n_features
+            Dimension vectors of each feature in the training dataset, `X`.
+        y_dimensions : dimension vector | list[dimension vectors] of length n_out
+            Dimension vector(s) of the target dataset, `y`.
 
         Returns
         -------
@@ -2074,10 +2245,10 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             Validated resampled training data used for denoising.
         variable_names_validated : list[str] of length n_features
             Validated list of variable names for each feature in `X`.
-        X_units : list[str] of length n_features
-            Validated units for `X`.
-        y_units : str | list[str] of length n_out
-            Validated units for `y`.
+        X_dimensions : list[dimension vectors] of length n_features
+            Validated dimensions for `X`.
+        y_dimensions : dimension vector | list[dimension vectors] of length n_out
+            Validated dimensions for `y`.
 
         """
         if (
@@ -2101,8 +2272,8 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 weights,
                 variable_names,
                 complexity_of_variables,
-                X_units,
-                y_units,
+                X_dimensions,
+                y_dimensions,
             )
 
         if isinstance(X, pd.DataFrame):
@@ -2159,9 +2330,21 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         else:
             raise NotImplementedError("y shape not supported!")
 
+        # Normalize user-provided dimension metadata once, at the frontend
+        # boundary.  From this point onward MySR and MySRCore exchange only
+        # seven-component exponent vectors, never unit strings or scaled
+        # quantities.
+        X_dimensions = normalize_input_dimensions(
+            X_dimensions, X.shape[1], name="X_dimensions"
+        )
+        n_outputs = self.nout_
+        y_dimensions = normalize_output_dimensions(
+            y_dimensions, n_outputs, name="y_dimensions"
+        )
+
         self.complexity_of_variables_ = copy.deepcopy(complexity_of_variables)
-        self.X_units_ = copy.deepcopy(X_units)
-        self.y_units_ = copy.deepcopy(y_units)
+        self.X_dimensions_ = copy.deepcopy(X_dimensions)
+        self.y_dimensions_ = copy.deepcopy(y_dimensions)
 
         return (
             X,
@@ -2170,8 +2353,8 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             weights,
             variable_names,
             complexity_of_variables,
-            X_units,
-            y_units,
+            X_dimensions,
+            y_dimensions,
         )
 
     def _validate_data_X_y(self, X: Any, y: Any) -> tuple[ndarray, ndarray]:
@@ -2196,6 +2379,61 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         else:
             return {32: np.complex64, 64: np.complex128}[self.precision]
 
+    @staticmethod
+    def _make_feature_dimension_spec(
+        formula_type: Literal["empirical", "semi_theoretical", "theoretical"],
+        X_dimensions: ArrayLike[DimensionVector] | None,
+        y_dimensions: ArrayLike[DimensionVector] | DimensionVector | None,
+    ) -> FeatureDimensionSpec | None:
+        """Build the dimension context for feature engineering.
+
+        Dimension metadata is normalized at the public ``fit`` boundary. This
+        helper performs only pure exponent-vector propagation, and the same
+        vectors are passed to MySRCore's ``equation_search`` call.
+        """
+
+        if X_dimensions is None:
+            if formula_type == "empirical":
+                return None
+            raise ValueError(
+                f"formula_type='{formula_type}' automatic feature engineering requires X_dimensions"
+            )
+        if y_dimensions is None and formula_type != "empirical":
+            raise ValueError(
+                f"formula_type='{formula_type}' automatic feature engineering requires y_dimensions"
+            )
+
+        x_dimension_count = (
+            1
+            if isinstance(X_dimensions, Mapping) or _looks_like_vector(X_dimensions)
+            else len(X_dimensions)
+        )
+        input_dimensions = normalize_input_dimensions(
+            X_dimensions, x_dimension_count, name="X_dimensions"
+        )
+        assert input_dimensions is not None
+        target_dimension = None
+        if y_dimensions is not None:
+            normalized_targets = normalize_output_dimensions(
+                y_dimensions,
+                1,
+                name="y_dimensions",
+            )
+            if isinstance(normalized_targets, list):
+                if len(normalized_targets) != 1:
+                    raise NotImplementedError(
+                        "Automatic feature engineering currently supports one output dimension"
+                    )
+                target_dimension = normalized_targets[0]
+            else:
+                target_dimension = normalized_targets
+
+        return FeatureDimensionSpec(
+            input_dimensions=tuple(input_dimensions),
+            target_dimension=target_dimension,
+            policy="ignore" if formula_type == "empirical" else "compatible",
+        )
+
     def _fit_auto_feature_engineering(
         self,
         X: ndarray,
@@ -2203,7 +2441,8 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         Xresampled: ndarray | None,
         variable_names: ArrayLike[str],
         complexity_of_variables: int | float | list[int | float] | None,
-        X_units: ArrayLike[str] | None,
+        X_dimensions: ArrayLike[DimensionVector] | None,
+        y_dimensions: ArrayLike[DimensionVector] | DimensionVector | None,
         random_state: np.random.RandomState,
     ) -> tuple[
         ndarray,
@@ -2221,18 +2460,13 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             )
         config = coerce_feature_engineering_config(self.feature_engineering_config)
         self.feature_engineering_config_ = config
-        if config.formula_type != "empirical":
-            raise NotImplementedError(
-                "The first automatic feature-engineering implementation supports "
-                "formula_type='empirical' only. Dimensional semi-theoretical and "
-                "theoretical modes are planned but are not silently approximated."
+        if self.complexity_mapping is not None:
+            raise ValueError(
+                "Automatic feature engineering cannot reproduce an arbitrary Julia "
+                "`complexity_mapping`; remove it or provide the public variable, "
+                "constant, and operator complexity settings."
             )
-        if config.feat_engine.enabled:
-            raise NotImplementedError(
-                "The FEAT-style engine has an independent switch but is not yet "
-                "implemented. Disable feat_engine for the AI Feynman-style branch."
-            )
-        if not config.surrogate_engine.enabled:
+        if not config.surrogate_engine.enabled and not config.feat_engine.enabled:
             raise ValueError(
                 "At least one feature-engineering engine must be enabled"
             )
@@ -2245,13 +2479,57 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         names = [str(name) for name in variable_names]
         self.raw_feature_names_in_ = np.asarray(names, dtype=str)
         self.raw_n_features_in_ = X.shape[1]
+        complexity_spec = FeatureComplexitySpec.from_user(
+            self.raw_n_features_in_,
+            complexity_of_variables=complexity_of_variables,
+            complexity_of_constants=self.complexity_of_constants,
+            complexity_of_operators=self.complexity_of_operators,
+        )
+        dimension_spec = self._make_feature_dimension_spec(
+            self.formula_type,
+            X_dimensions,
+            y_dimensions,
+        )
+        if dimension_spec is not None:
+            # Keep the transformed metadata in the same canonical tuple form
+            # even when this internal helper is called directly in tests or by
+            # downstream integrations rather than through ``fit``.
+            X_dimensions = list(dimension_spec.input_dimensions)
+        if dimension_spec is not None and len(dimension_spec.input_dimensions) != self.raw_n_features_in_:
+            raise ValueError(
+                "The number of dimensions in `X_dimensions` must equal the number of raw input features"
+            )
         seed = int(random_state.randint(0, 2**31 - 1))
-        engineer = SurrogateFeatureEngineer(
-            config.surrogate_engine,
-            random_state=seed,
-        ).fit(X, y, variable_names=names)
+        engines: list[tuple[str, Any]] = []
+        if config.surrogate_engine.enabled:
+            surrogate_engineer = SurrogateFeatureEngineer(
+                config.surrogate_engine,
+                random_state=seed,
+                complexity_spec=complexity_spec,
+                dimension_spec=dimension_spec,
+            ).fit(X, y, variable_names=names)
+            engines.append(("surrogate", surrogate_engineer))
+        if config.feat_engine.enabled:
+            feat_engineer = FEATLikeFeatureEngineer(
+                config.feat_engine,
+                random_state=seed + 104729,
+                complexity_spec=complexity_spec,
+                dimension_spec=dimension_spec,
+            ).fit(X, y, variable_names=names)
+            engines.append(("feat", feat_engineer))
+        engineer = FeatureEngineeringEnsemble(
+            engines,
+            names,
+            max_generated_features=config.max_generated_features,
+        )
         self.feature_engineer_ = engineer
         self.feature_engineering_report_ = copy.deepcopy(engineer.report_)
+        self.feature_engineering_engine_reports_ = copy.deepcopy(
+            engineer.report_["engine_reports"]
+        )
+        self.engineered_feature_bundles_ = copy.deepcopy(
+            engineer.report_["accepted_bundles"]
+        )
         self.engineered_feature_names_ = [
             proposal.name for proposal in engineer.accepted_proposals_
         ]
@@ -2259,10 +2537,43 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             proposal.name: proposal.expression
             for proposal in engineer.accepted_proposals_
         }
+        engineered_dimensions: list[str | None] = []
+        for proposal in engineer.accepted_proposals_:
+            if dimension_spec is None or proposal.node is None:
+                engineered_dimensions.append(None)
+                continue
+            if dimension_spec is not None and proposal.node is not None:
+                valid, dimension_expression, reason = dimension_spec.validate(proposal.node)
+                if not valid:
+                    raise RuntimeError(
+                        f"Accepted engineered feature {proposal.name} failed dimensional replay: {reason}"
+                    )
+                engineered_dimensions.append(dimension_expression)
+            else:
+                engineered_dimensions.append(None)
+        self.engineered_feature_complexities_ = [
+            float(proposal.complexity) for proposal in engineer.accepted_proposals_
+        ]
+        self.engineered_feature_dimensions_ = engineered_dimensions
+        self.engineered_feature_metadata_ = [
+            {
+                "name": proposal.name,
+                "expression": proposal.expression,
+                "complexity": float(proposal.complexity),
+                "dimension": dimension,
+                "feature_kind": proposal.feature_kind,
+            }
+            for proposal, dimension in zip(
+                engineer.accepted_proposals_, engineered_dimensions, strict=True
+            )
+        ]
+        self.feature_engineering_report_[
+            "engineered_feature_metadata"
+        ] = copy.deepcopy(self.engineered_feature_metadata_)
 
         if config.mode == "suggest":
             self.augmented_feature_names_ = np.asarray(names, dtype=str)
-            return X, Xresampled, variable_names, complexity_of_variables, X_units
+            return X, Xresampled, variable_names, complexity_of_variables, X_dimensions
 
         augmented_names = engineer.get_feature_names_out()
         collisions = set(names).intersection(self.engineered_feature_names_)
@@ -2279,22 +2590,29 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         self.feature_names_in_ = self.augmented_feature_names_
         self.display_feature_names_in_ = self.feature_names_in_
 
-        if isinstance(complexity_of_variables, list):
-            complexity_of_variables = complexity_of_variables + [
-                proposal.complexity for proposal in engineer.accepted_proposals_
-            ]
-            self.complexity_of_variables_ = copy.deepcopy(complexity_of_variables)
+        raw_complexities = list(complexity_spec.variable_complexities)
+        complexity_of_variables = raw_complexities + [
+            proposal.complexity for proposal in engineer.accepted_proposals_
+        ]
+        self.complexity_of_variables_ = copy.deepcopy(complexity_of_variables)
 
-        if X_units is not None:
-            units = [str(unit) for unit in X_units]
-            units.extend(
-                proposal.unit_expression(units[: self.raw_n_features_in_])
-                for proposal in engineer.accepted_proposals_
-            )
-            X_units = cast(ArrayLike[str], units)
-            self.X_units_ = copy.deepcopy(X_units)
+        if X_dimensions is not None:
+            dimensions = list(X_dimensions)
+            for proposal in engineer.accepted_proposals_:
+                inferred = (
+                    dimension_spec._infer(proposal.node)[0]
+                    if dimension_spec is not None and proposal.node is not None
+                    else None
+                )
+                # Empirical search permits dimensionally incompatible feature
+                # expressions.  Keep the public vector contract by recording an
+                # explicit dimensionless placeholder while the report retains
+                # ``unknown`` as the human-facing metadata label.
+                dimensions.append(inferred or (0.0,) * len(DIMENSION_BASIS))
+            X_dimensions = cast(ArrayLike[DimensionVector], dimensions)
+            self.X_dimensions_ = copy.deepcopy(X_dimensions)
 
-        return X, Xresampled, variable_names, complexity_of_variables, X_units
+        return X, Xresampled, variable_names, complexity_of_variables, X_dimensions
 
     def _pre_transform_training_data(
         self,
@@ -2303,8 +2621,8 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         Xresampled: ndarray | None,
         variable_names: ArrayLike[str],
         complexity_of_variables: int | float | list[int | float] | None,
-        X_units: ArrayLike[str] | None,
-        y_units: ArrayLike[str] | str | None,
+        X_dimensions: ArrayLike[DimensionVector] | None,
+        y_dimensions: ArrayLike[DimensionVector] | DimensionVector | None,
         random_state: np.random.RandomState,
     ):
         """
@@ -2327,10 +2645,10 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             Of length `n_features`.
         complexity_of_variables : int | float | list[int | float] | None
             Complexity of each variable in the training dataset, `X`.
-        X_units : list[str]
-            Units of each variable in the training dataset, `X`.
-        y_units : str | list[str]
-            Units of each variable in the training dataset, `y`.
+        X_dimensions : list[dimension vectors]
+            Dimension vectors of each variable in the training dataset, `X`.
+        y_dimensions : dimension vector | list[dimension vectors]
+            Dimension vector(s) of the target dataset, `y`.
         random_state : int | np.RandomState
             Pass an int for reproducible results across multiple function calls.
             See :term:`Glossary <random_state>`. Default is `None`.
@@ -2352,21 +2670,22 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         variable_names_transformed : list[str] of length n_features
             Names of each variable in the transformed dataset,
             `X_transformed`.
-        X_units_transformed : list[str] of length n_features
-            Units of each variable in the transformed dataset.
-        y_units_transformed : str | list[str] of length n_out
-            Units of each variable in the transformed dataset.
+        X_dimensions_transformed : list[dimension vectors] of length n_features
+            Dimensions of each variable in the transformed dataset.
+        y_dimensions_transformed : dimension vector | list[dimension vectors]
+            Dimensions of the target variable(s) in the transformed dataset.
         """
         # Automatic feature engineering precedes selection and denoising.
         if self.auto_feature_engineering:
-            X, Xresampled, variable_names, complexity_of_variables, X_units = (
+            X, Xresampled, variable_names, complexity_of_variables, X_dimensions = (
                 self._fit_auto_feature_engineering(
                     X,
                     y,
                     Xresampled,
                     variable_names,
                     complexity_of_variables,
-                    X_units,
+                    X_dimensions,
+                    y_dimensions,
                     random_state,
                 )
             )
@@ -2399,12 +2718,12 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 ]
                 self.complexity_of_variables_ = copy.deepcopy(complexity_of_variables)
 
-            if X_units is not None:
-                X_units = cast(
+            if X_dimensions is not None:
+                X_dimensions = cast(
                     ArrayLike[str],
-                    [X_units[i] for i in range(len(X_units)) if selection_mask[i]],
+                    [X_dimensions[i] for i in range(len(X_dimensions)) if selection_mask[i]],
                 )
-                self.X_units_ = copy.deepcopy(X_units)
+                self.X_dimensions_ = copy.deepcopy(X_dimensions)
 
             # Re-perform data validation and feature name updating
             X, y = self._validate_data_X_y(X, y)
@@ -2425,7 +2744,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             else:
                 X, y = denoise(X, y, Xresampled=Xresampled, random_state=random_state)
 
-        return X, y, variable_names, complexity_of_variables, X_units, y_units
+        return X, y, variable_names, complexity_of_variables, X_dimensions, y_dimensions
 
     def _run(
         self,
@@ -2726,6 +3045,10 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
         expression_spec = self._julia_expression_spec(type_spec_runtime)
 
+        # MySRRegressor.formula_type is the single source of truth for both the
+        # frontend feature-engineering gate and the MySRCore search policy.
+        backend_formula_type = self.formula_type
+
         # Call to Julia backend.
         # See https://github.com/astroautomata/SymbolicRegression.jl/blob/master/src/OptionsStruct.jl
         options = SymbolicRegression.Options(
@@ -2759,8 +3082,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             tournament_selection_n=self.tournament_selection_n,
             # These have the same name:
             parsimony=self.parsimony,
-            dimensional_constraint_penalty=self.dimensional_constraint_penalty,
-            dimensionless_constants_only=self.dimensionless_constants_only,
+            formula_type=jl.Symbol(backend_formula_type),
             alpha=self.alpha,
             maxdepth=runtime_params.maxdepth,
             fast_cycle=self.fast_cycle,
@@ -2780,6 +3102,14 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             ncycles_per_iteration=self.ncycles_per_iteration,
             fraction_replaced=self.fraction_replaced,
             fraction_replaced_guesses=self.fraction_replaced_guesses,
+            rnn_gpsr_seeding=self.rnn_gpsr_seeding,
+            rnn_gpsr_seed_fraction=self.rnn_gpsr_seed_fraction,
+            rnn_gpsr_candidate_count=self.rnn_gpsr_candidate_count,
+            rnn_gpsr_proposal_count=self.rnn_gpsr_proposal_count,
+            rnn_gpsr_cycles=self.rnn_gpsr_cycles,
+            rnn_gpsr_rounds=self.rnn_gpsr_rounds,
+            rnn_gpsr_quality_gate=self.rnn_gpsr_quality_gate,
+            rnn_gpsr_maxsize=self.rnn_gpsr_maxsize,
             topn=self.topn,
             print_precision=self.print_precision,
             optimizer_algorithm=self.optimizer_algorithm,
@@ -2810,6 +3140,39 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         if self.warm_start and self.julia_options_stream_ is not None:
             SymbolicRegression.CoreModule.check_warm_start_compatibility(
                 jl_deserialize(self.julia_options_stream_), options
+            )
+
+        python_rnn_generator = None
+        julia_rnn_generator = None
+        if self.rnn_gpsr_seeding and saved_state is None:
+            from .rnn_gpsr import (
+                TorchRNNConfig,
+                TorchRNNGenerator,
+                ensure_torch_available,
+                make_julia_rnn_generator,
+            )
+
+            # Fail before entering the Julia search loop so the optional
+            # dependency error remains clear and actionable to Python users.
+            ensure_torch_available()
+            python_rnn_generator = TorchRNNGenerator(
+                TorchRNNConfig(
+                    cell=self.rnn_cell,
+                    hidden_size=self.rnn_hidden_size,
+                    embedding_size=self.rnn_embedding_size,
+                    num_layers=self.rnn_num_layers,
+                    learning_rate=self.rnn_learning_rate,
+                    weight_decay=self.rnn_weight_decay,
+                    epochs=self.rnn_epochs,
+                    patience=self.rnn_patience,
+                    entropy_weight=self.rnn_entropy_weight,
+                    validation_fraction=self.rnn_validation_fraction,
+                    min_validation_spearman=self.rnn_min_validation_spearman,
+                    top_fraction=self.rnn_top_fraction,
+                )
+            )
+            julia_rnn_generator = make_julia_rnn_generator(
+                jl, python_rnn_generator
             )
 
         # Convert data to desired precision
@@ -2867,14 +3230,15 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 [str(v) for v in self.display_feature_names_in_]
             ),
             y_variable_names=jl_y_variable_names,
-            X_units=jl_array(self.X_units_),
-            y_units=(
-                jl_array(self.y_units_)
-                if isinstance(self.y_units_, list)
-                else self.y_units_
+            X_dimensions=jl_array(self.X_dimensions_),
+            y_dimensions=(
+                jl_array(self.y_dimensions_)
+                if isinstance(self.y_dimensions_, list)
+                else self.y_dimensions_
             ),
             options=options,
             guesses=jl_guesses,
+            rnn_generator=julia_rnn_generator,
             numprocs=numprocs,
             parallelism=parallelism,
             saved_state=saved_state,
@@ -2906,6 +3270,11 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
         # Set attributes
         self.equations_ = equations
+        self.rnn_gpsr_diagnostics_ = (
+            list(python_rnn_generator.diagnostics_)
+            if python_rnn_generator is not None
+            else []
+        )
 
         ALREADY_RAN = True
 
@@ -2921,8 +3290,8 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         weights=None,
         variable_names: ArrayLike[str] | None = None,
         complexity_of_variables: int | float | list[int | float] | None = None,
-        X_units: ArrayLike[str] | None = None,
-        y_units: str | ArrayLike[str] | None = None,
+        X_dimensions: ArrayLike[DimensionVector] | None = None,
+        y_dimensions: DimensionVector | ArrayLike[DimensionVector] | None = None,
     ) -> "MySRRegressor":
         """
         Search for equations to fit the dataset and store them in `self.equations_`.
@@ -2950,15 +3319,13 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             instead of `variable_names`. Cannot contain spaces or special
             characters. Avoid variable names which are also
             function names in `sympy`, such as "N".
-        X_units : list[str]
-            A list of units for each variable in `X`. Each unit should be
-            a string representing a Julia expression. See DynamicQuantities.jl
-            https://symbolicml.org/DynamicQuantities.jl/dev/units/ for more
-            information.
-        y_units : str | list[str]
-            Similar to `X_units`, but as a unit for the target variable, `y`.
-            If `y` is a matrix, a list of units should be passed. If `X_units`
-            is given but `y_units` is not, then `y_units` will be arbitrary.
+        X_dimensions : list[dimension vectors]
+            A list of seven-component dimension exponent vectors (or mappings)
+            for each variable in `X`, in the order length, mass, time, current,
+            temperature, luminosity, amount. Unit strings are not accepted.
+        y_dimensions : dimension vector | list[dimension vectors]
+            Similar to `X_dimensions`, but for the target variable `y`. If `y` is
+            a matrix, pass one dimension specification per output.
         Returns
         -------
         self : object
@@ -2997,12 +3364,17 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             self.julia_state_stream_ = None
             self.julia_options_stream_ = None
             self.complexity_of_variables_ = None
-            self.X_units_ = None
-            self.y_units_ = None
+            self.X_dimensions_ = None
+            self.y_dimensions_ = None
             self.feature_engineer_ = None
             self.feature_engineering_report_ = None
+            self.feature_engineering_engine_reports_ = {}
             self.engineered_feature_names_ = []
             self.engineered_feature_expressions_ = {}
+            self.engineered_feature_complexities_ = []
+            self.engineered_feature_dimensions_ = []
+            self.engineered_feature_metadata_ = []
+            self.engineered_feature_bundles_ = []
             self.augmented_feature_names_ = None
             self.search_feature_names_ = None
             if hasattr(self, "_type_spec_runtime_definition_"):
@@ -3025,8 +3397,8 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             weights,
             variable_names,
             complexity_of_variables,
-            X_units,
-            y_units,
+            X_dimensions,
+            y_dimensions,
         ) = self._validate_and_set_fit_params(
             X,
             y,
@@ -3034,23 +3406,23 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             weights,
             variable_names,
             complexity_of_variables,
-            X_units,
-            y_units,
+            X_dimensions,
+            y_dimensions,
         )
 
         random_state = check_random_state(self.random_state)  # For np random
         seed = cast(int, random_state.randint(0, 2**31 - 1))  # For julia random
 
         # Pre transformations (feature selection and denoising)
-        X, y, variable_names, complexity_of_variables, X_units, y_units = (
+        X, y, variable_names, complexity_of_variables, X_dimensions, y_dimensions = (
             self._pre_transform_training_data(
                 X,
                 y,
                 Xresampled,
                 variable_names,
                 complexity_of_variables,
-                X_units,
-                y_units,
+                X_dimensions,
+                y_dimensions,
                 random_state,
             )
         )
@@ -3066,8 +3438,8 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             complexity_of_variables,
             weights,
             y,
-            X_units,
-            y_units,
+            X_dimensions,
+            y_dimensions,
             self.type_spec is None and self._supports_export("sympy"),
         )
 

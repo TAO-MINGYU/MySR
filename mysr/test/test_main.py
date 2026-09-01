@@ -2552,7 +2552,14 @@ class TestDimensionalConstraints(unittest.TestCase):
                 "my_mul": lambda x, y: x * y,
             },
         )
-        model.fit(self.X, y, X_units=["m", "m", "m", "m", "m"], y_units=["m", "m"])
+        length = [1, 0, 0, 0, 0, 0, 0]
+        model.formula_type = "theoretical"
+        model.fit(
+            self.X,
+            y,
+            X_dimensions=[length] * self.X.shape[1],
+            y_dimensions=[length, length],
+        )
 
         # The best expression should have complexity larger than just 2:
         for i in range(2):
@@ -2561,8 +2568,8 @@ class TestDimensionalConstraints(unittest.TestCase):
             simple_eqs = model.equations_[i].query("complexity <= 2")
             self.assertTrue(len(simple_eqs) == 0 or simple_eqs.loss.min() > 1e-6)
 
-    def test_unit_checks(self):
-        """This just checks the number of units passed"""
+    def test_dimension_checks(self):
+        """Check dimension metadata shape and vector validation."""
         use_custom_variable_names = False
         variable_names = None
         complexity_of_variables = 1
@@ -2573,42 +2580,45 @@ class TestDimensionalConstraints(unittest.TestCase):
             complexity_of_variables,
             weights,
         )
-        valid_units = [
-            (np.ones((10, 2)), np.ones(10), ["m/s", "s"], "m"),
-            (np.ones((10, 1)), np.ones(10), ["m/s"], None),
-            (np.ones((10, 1)), np.ones(10), None, "km/s"),
-            (np.ones((10, 1)), np.ones(10), None, ["m/s"]),
-            (np.ones((10, 1)), np.ones((10, 1)), None, ["m/s"]),
-            (np.ones((10, 1)), np.ones((10, 2)), None, ["m/s", ""]),
+        length = [1, 0, 0, 0, 0, 0, 0]
+        time = [0, 0, 1, 0, 0, 0, 0]
+        velocity = [1, 0, -1, 0, 0, 0, 0]
+        valid_dimensions = [
+            (np.ones((10, 2)), np.ones(10), [velocity, time], length),
+            (np.ones((10, 1)), np.ones(10), [velocity], None),
+            (np.ones((10, 1)), np.ones(10), None, velocity),
+            (np.ones((10, 1)), np.ones(10), None, [velocity]),
+            (np.ones((10, 1)), np.ones((10, 1)), None, [velocity]),
+            (np.ones((10, 1)), np.ones((10, 2)), None, [velocity, [0, 0, 0, 0, 0, 0, 0]]),
         ]
-        for X, y, X_units, y_units in valid_units:
+        for X, y, X_dimensions, y_dimensions in valid_dimensions:
             _check_assertions(
                 X,
                 *args,
                 y,
-                X_units,
-                y_units,
+                X_dimensions,
+                y_dimensions,
                 supports_sympy=False,
             )
-        invalid_units = [
-            (np.ones((10, 2)), np.ones(10), ["m/s", "s", "s^2"], None),
-            (np.ones((10, 2)), np.ones(10), ["m/s", "s", "s^2"], "km"),
-            (np.ones((10, 2)), np.ones((10, 2)), ["m/s", "s"], ["m"]),
-            (np.ones((10, 1)), np.ones((10, 1)), "m/s", ["m"]),
+        invalid_dimensions = [
+            (np.ones((10, 2)), np.ones(10), [velocity, time, length], None),
+            (np.ones((10, 2)), np.ones(10), [velocity, time], [length, time]),
+            (np.ones((10, 2)), np.ones((10, 2)), [velocity, time], [length]),
+            (np.ones((10, 1)), np.ones((10, 1)), [velocity, time], [length]),
         ]
-        for X, y, X_units, y_units in invalid_units:
+        for X, y, X_dimensions, y_dimensions in invalid_dimensions:
             with self.assertRaises(ValueError):
                 _check_assertions(
                     X,
                     *args,
                     y,
-                    X_units,
-                    y_units,
+                    X_dimensions,
+                    y_dimensions,
                     supports_sympy=False,
                 )
 
-    def test_unit_propagation(self):
-        """Check that units are propagated correctly.
+    def test_dimension_propagation(self):
+        """Check that dimensions are propagated correctly.
 
         This also tests that variables have the correct names.
         """
@@ -2636,8 +2646,12 @@ class TestDimensionalConstraints(unittest.TestCase):
         model.fit(
             X,
             y,
-            X_units=["m", "s", "A"],
-            y_units=["m*A"],
+            X_dimensions=[
+                [1, 0, 0, 0, 0, 0, 0],
+                [0, 0, 1, 0, 0, 0, 0],
+                [0, 0, 0, 1, 0, 0, 0],
+            ],
+            y_dimensions=[1, 0, 0, 1, 0, 0, 0],
         )
         best = model.get_best()
         self.assertIn("x0", best["equation"])
@@ -2666,7 +2680,7 @@ class TestDimensionalConstraints(unittest.TestCase):
         best3 = model3.get_best()
         self.assertIn("x0", best3["equation"])
 
-        # Try warm start, but with no units provided (should
+        # Try warm start, but with no dimensions provided (should
         # be a different dataset, and thus different result):
         model.early_stop_condition = "(l, c) -> l < 1e-6 && c == 1"
         model.fit(X, y)
@@ -2682,7 +2696,7 @@ class TestDimensionalConstraints(unittest.TestCase):
         self.assertEqual(processed["mult"], (-1, 1))
 
 
-# TODO: Determine desired behavior if second .fit() call does not have units
+# TODO: Determine desired behavior if second .fit() call does not have dimensions
 
 
 class TestTemplateExpressionSpec(unittest.TestCase):

@@ -20,7 +20,7 @@ SymbolicRegression.jl 2.0.0-beta.8，提交
 https://github.com/astroautomata/SymbolicRegression.jl
 
 正式发行配置通过 `mysr/juliapkg.json` 中的 GitHub URL 和不可变版本标签
-`v0.1.0` 解析 MySRCore.jl。这复用了固定基线 PySR 解析
+`v1.0.0` 解析 MySRCore.jl。这复用了固定基线 PySR 解析
 SymbolicRegression.jl 的 JuliaPkg 模式，同时不要求 MySRCore.jl 预先注册到
 Julia General registry。
 
@@ -45,3 +45,17 @@ MySR 的自动特征工程代理分支参考了 AI Feynman 的代理插值、对
 `mysr/feature_engineering.py` 是面向 MySR 接口重新设计的独立实现，没有复制、
 打包或运行官方 AI Feynman 源文件，因此 AI Feynman 不是 MySR 的 vendored dependency
 或运行时依赖。若以后直接复制官方源码，必须另行保留其 MIT 版权与许可证文本。
+
+## Algorithmic inspiration: FEAT
+
+MySR 的轻量 FEAT-like 分支参考了 FEAT（Feature Engineering Automation Tool，
+特征工程自动化工具）论文与公开文档中的表达式集合进化、下游线性模型、
+ε-lexicase 父代选择及误差—复杂度多目标生存思想：
+
+- 官方仓库：https://github.com/cavalab/feat （GNU GPLv3）；
+- 本次核对的参考提交：`2967e6e5f7eee75ecf34062708e7b0b87c0b9145`。
+
+`mysr/feat_engine.py` 是 Apache-2.0 下为 MySR 公共接口独立编写的轻量实现。
+它没有复制、导入、编译、打包或 vendoring 官方 FEAT 的 GPLv3 源码，也不依赖
+官方实现使用的 C++、Shogun 或 Eigen 运行栈。因此官方 FEAT 不是 MySR 的运行时
+依赖；若未来直接接入官方实现，必须作为独立的许可证与发行决策重新审查。

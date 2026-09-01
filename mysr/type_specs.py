@@ -576,8 +576,8 @@ _TYPE_SPEC_MODULE = _block(r"""
     Base.show(io::IO, value::_TypeSpecValue) = print(io, _string(value))
     needs_brackets(::_TypeSpecValue) = false
     string_constant(
-        value::_TypeSpecValue, ::Val{precision}, unit
-    ) where {precision} = _string(value) * unit
+        value::_TypeSpecValue, ::Val{precision}, dimension_suffix
+    ) where {precision} = _string(value) * dimension_suffix
 
     function _convert_value(x)
         x isa _value_type && return x
@@ -1205,8 +1205,8 @@ def prepare_type_spec_fit_data(
     weights: Any,
     variable_names: Any,
     complexity_of_variables: Any,
-    X_units: Any,
-    y_units: Any,
+    X_dimensions: Any,
+    y_dimensions: Any,
 ) -> tuple[np.ndarray, np.ndarray, None, Any, np.ndarray, Any, Any, Any]:
     if Xresampled is not None or model.denoise or model.select_k_features:
         raise NotImplementedError(
@@ -1249,8 +1249,8 @@ def prepare_type_spec_fit_data(
         raise ValueError("X and y must contain at least one sample.")
     if weights is not None:
         raise NotImplementedError("TypeSpec does not currently support weights.")
-    if X_units is not None or y_units is not None:
-        raise NotImplementedError("TypeSpec does not currently support units.")
+    if X_dimensions is not None or y_dimensions is not None:
+        raise NotImplementedError("TypeSpec does not currently support dimensions.")
 
     model.n_features_in_ = X.shape[1]
     if variable_names is None:
@@ -1259,8 +1259,8 @@ def prepare_type_spec_fit_data(
     model.display_feature_names_in_ = model.feature_names_in_
     model.nout_ = 1
     model.complexity_of_variables_ = copy.deepcopy(complexity_of_variables)
-    model.X_units_ = copy.deepcopy(X_units)
-    model.y_units_ = copy.deepcopy(y_units)
+    model.X_dimensions_ = copy.deepcopy(X_dimensions)
+    model.y_dimensions_ = copy.deepcopy(y_dimensions)
     return (
         X,
         y,
@@ -1268,8 +1268,8 @@ def prepare_type_spec_fit_data(
         weights,
         model.feature_names_in_,
         complexity_of_variables,
-        X_units,
-        y_units,
+        X_dimensions,
+        y_dimensions,
     )
 
 

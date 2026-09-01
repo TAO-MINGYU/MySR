@@ -4,7 +4,7 @@
         "MySRCore": {
             "uuid": "65629769-74ff-4293-a07c-ae7483a03f6e",
             "url": "https://github.com/TAO-MINGYU/MySRCore.jl",
-            "rev": "v0.1.0",
+            "rev": "v1.0.0",
             "preferences": {
                 "precompile_float64": false
             }

@@ -1417,8 +1417,8 @@ print(json.dumps({{
             Xresampled=None,
             weights=None,
             variable_names=None,
-            X_units=None,
-            y_units=None,
+            X_dimensions=None,
+            y_dimensions=None,
         ):
             return prepare_type_spec_fit_data(
                 model or MySRRegressor(),
@@ -1428,8 +1428,8 @@ print(json.dumps({{
                 weights,
                 variable_names,
                 None,
-                X_units,
-                y_units,
+                X_dimensions,
+                y_dimensions,
             )
 
         with self.assertRaisesRegex(NotImplementedError, "denoising"):
@@ -1444,8 +1444,8 @@ print(json.dumps({{
             prepare(X=np.empty((0, 1), dtype=object), y=np.empty(0, dtype=object))
         with self.assertRaisesRegex(NotImplementedError, "weights"):
             prepare(weights=np.ones(2))
-        with self.assertRaisesRegex(NotImplementedError, "units"):
-            prepare(X_units=["m"])
+        with self.assertRaisesRegex(NotImplementedError, "dimensions"):
+            prepare(X_dimensions=[[1, 0, 0, 0, 0, 0, 0]])
         with self.assertWarnsRegex(UserWarning, "reset to `None`"):
             prepare(X=pd.DataFrame({"a": ["a", "b"]}), variable_names=["a"])
         model = MySRRegressor()
