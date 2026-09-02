@@ -98,6 +98,28 @@
   - deterministic
   - warm_start
   - guesses
+- RNN-GPSR:
+  - rnn_gpsr_seeding
+  - rnn_gpsr_seed_fraction
+  - rnn_gpsr_candidate_count
+  - rnn_gpsr_proposal_count
+  - rnn_gpsr_cycles
+  - rnn_gpsr_rounds
+  - rnn_gpsr_feedback_fraction
+  - rnn_gpsr_quality_gate
+  - rnn_gpsr_maxsize
+  - rnn_hidden_size
+  - rnn_cell
+  - rnn_embedding_size
+  - rnn_num_layers
+  - rnn_learning_rate
+  - rnn_weight_decay
+  - rnn_epochs
+  - rnn_patience
+  - rnn_entropy_weight
+  - rnn_validation_fraction
+  - rnn_min_validation_spearman
+  - rnn_top_fraction
 - Monitoring:
   - verbosity
   - update_verbosity

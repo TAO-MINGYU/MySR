@@ -30,6 +30,23 @@ def test_semi_theoretical_is_a_public_formula_type():
     assert model.get_params()["formula_type"] == "semi_theoretical"
 
 
+@pytest.mark.parametrize("formula_type", ["semi_theoretical", "theoretical"])
+@pytest.mark.parametrize("missing", ["X_dimensions", "y_dimensions"])
+def test_constrained_formula_type_requires_dimension_metadata(formula_type, missing):
+    model = MySRRegressor(formula_type=formula_type, niterations=0)
+    X = np.ones((8, 1))
+    y = np.ones(8)
+    dimensions = [1, 0, 0, 0, 0, 0, 0]
+    fit_kwargs = {
+        "X_dimensions": [dimensions],
+        "y_dimensions": dimensions,
+    }
+    fit_kwargs[missing] = None
+
+    with pytest.raises(ValueError, match=missing):
+        model.fit(X, y, **fit_kwargs)
+
+
 def test_feature_engineering_config_has_no_duplicate_formula_type():
     config = FeatureEngineeringConfig()
     assert "formula_type" not in config.__dataclass_fields__

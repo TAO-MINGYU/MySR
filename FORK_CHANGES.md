@@ -1,5 +1,17 @@
 # Fork changes
 
+## 2026-09-02 - MySR 1.1.0
+
+- Added formula_type-conditioned RNN-GPSR proposals with a PyTorch RNN policy,
+  MySRCore dimensional validation, lightweight backend GPSR, and elite feedback
+  across configurable rounds.
+- Routed AI Feynman-inspired generated features into the RNN-GPSR path when both
+  features are enabled, while preserving direct user `guesses` as highest-priority
+  formal-search seeds.
+- Added configurable RNN-GPSR parameters, batched proposal sampling, bootstrap
+  structural training, and focused dimensional/seeding regression tests.
+- Pinned the Python frontend to the matching MySRCore.jl `v1.1.0` release.
+
 ## 2026-09-01 - MySR 1.0.0
 
 - Promoted the MySRCore-backed dimensional search and formula-type contract to the

@@ -711,17 +711,17 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         How much of the population to replace with migrating equations from
         guesses. Default is `0.001`.
     rnn_gpsr_seeding : bool
-        Enable data-informed initial population seeding. A trainable PyTorch
-        LSTM/GRU learns from backend-evaluated expression sequences and generates
-        syntax-complete proposals autoregressively. MySRCore verifies them with
-        the real loss before bounded GP-SR pre-evolution. Default is `False`.
+        Enable alternating RNN → lightweight GPSR → elite-feedback seeding. A
+        trainable PyTorch LSTM/GRU starts from a grammar/dimension-aware corpus;
+        later rounds learn from MySRCore GPSR feedback. Default is `False`.
         Requires the `rnn` extra.
     rnn_gpsr_seed_fraction : float
         Fraction of each formal initial population replaced by RNN-GPSR seed
         members. Default is `0.5`.
     rnn_gpsr_candidate_count : int
-        Number of evaluated expression individuals used to fit the recurrent
-        generator. Default is `128`.
+        Number of structural-prior expressions used to fit the recurrent
+        generator in the bootstrap round. These are not backend-evaluated
+        individuals. Default is `128`.
     rnn_gpsr_proposal_count : int
         Number of expression individuals requested from the recurrent generator
         per feedback round. Default is `128`.
@@ -756,10 +756,13 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         Fraction of best-cost expressions emphasized in the quality-weighted
         autoregressive loss, inspired by risk-seeking DSO training. Default is `0.2`.
     rnn_gpsr_cycles : int
-        Number of lightweight GP-SR cycles per neural/GP feedback round.
+        Number of lightweight GP-SR cycles per RNN/GPSR feedback round.
         Default is `4`.
     rnn_gpsr_rounds : int
-        Number of RNN → GP-SR → elite-feedback rounds. Default is `2`.
+        Number of RNN → GP-SR → feedback rounds. Default is `2`.
+    rnn_gpsr_feedback_fraction : float
+        Fraction of the best lightweight GPSR members appended to the next RNN
+        training set after each feedback round. Default is `0.2`.
     rnn_gpsr_quality_gate : bool
         Evaluate a random control group under the same candidate budget and retain
         whichever group has better real-loss quality before GP-SR. Default is `True`.
@@ -951,7 +954,10 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         Plugin runtime state is reinitialized for each call to `fit`.
         Default is `False`.
     guesses : list[str] | list[list[str]] | list[dict[str, str]] | list[list[dict[str, str]]] | None
-        Initial guesses for expressions to seed the search. Examples:
+        User-provided expressions to inject directly into the formal MySRCore
+        initial populations with highest priority. They are not filtered out by
+        AI-Feynman-like or RNN-GPSR seeding, but still undergo backend structural
+        and dimensional validation. Examples:
         `["x0 + x1", "x0^2"]`, `[["x0"], ["x1"]]` (multi-output),
         `[{"f": "#1 + #2"}]` (TemplateExpressionSpec where `#1`, `#2` are
         placeholders for the 1st, 2nd arguments of expression `f`).
@@ -1229,6 +1235,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         rnn_top_fraction: float = 0.2,
         rnn_gpsr_cycles: int = 4,
         rnn_gpsr_rounds: int = 2,
+        rnn_gpsr_feedback_fraction: float = 0.2,
         rnn_gpsr_quality_gate: bool = True,
         rnn_gpsr_maxsize: int | None = None,
         weight_add_node: float | None = None,
@@ -1408,6 +1415,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         self.rnn_top_fraction = rnn_top_fraction
         self.rnn_gpsr_cycles = rnn_gpsr_cycles
         self.rnn_gpsr_rounds = rnn_gpsr_rounds
+        self.rnn_gpsr_feedback_fraction = rnn_gpsr_feedback_fraction
         self.rnn_gpsr_quality_gate = rnn_gpsr_quality_gate
         self.rnn_gpsr_maxsize = rnn_gpsr_maxsize
         self.topn = topn
@@ -2134,6 +2142,8 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             raise ValueError("`rnn_gpsr_cycles` must be non-negative")
         if self.rnn_gpsr_rounds < 1:
             raise ValueError("`rnn_gpsr_rounds` must be positive")
+        if not 0.0 <= self.rnn_gpsr_feedback_fraction <= 1.0:
+            raise ValueError("`rnn_gpsr_feedback_fraction` must be in [0, 1]")
         if not isinstance(self.rnn_gpsr_quality_gate, bool):
             raise TypeError("`rnn_gpsr_quality_gate` must be a bool")
         if self.rnn_gpsr_maxsize is not None and not (
@@ -2341,6 +2351,19 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         y_dimensions = normalize_output_dimensions(
             y_dimensions, n_outputs, name="y_dimensions"
         )
+
+        if self.formula_type != "empirical":
+            missing = []
+            if X_dimensions is None:
+                missing.append("X_dimensions")
+            if y_dimensions is None:
+                missing.append("y_dimensions")
+            if missing:
+                raise ValueError(
+                    f"formula_type='{self.formula_type}' requires "
+                    + " and ".join(missing)
+                    + " at fit time"
+                )
 
         self.complexity_of_variables_ = copy.deepcopy(complexity_of_variables)
         self.X_dimensions_ = copy.deepcopy(X_dimensions)
@@ -3045,9 +3068,59 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
         expression_spec = self._julia_expression_spec(type_spec_runtime)
 
+        # The callback is created below, after the Julia options are assembled.
+        # Initialize the handles now; the populated callback is attached to the
+        # ``equation_search`` call only after PyTorch construction succeeds.
+        python_rnn_generator = None
+        julia_rnn_generator = None
+
         # MySRRegressor.formula_type is the single source of truth for both the
         # frontend feature-engineering gate and the MySRCore search policy.
         backend_formula_type = self.formula_type
+
+        # Keep ordinary fits compatible with older MySRCore backends by sending
+        # the optional RNN-GPSR keyword group only when the feature is enabled.
+        # An enabled RNN-GPSR run requires a backend that implements the matching
+        # options.
+        rnn_gpsr_options = (
+            {
+                "rnn_gpsr_seeding": self.rnn_gpsr_seeding,
+                "rnn_gpsr_seed_fraction": self.rnn_gpsr_seed_fraction,
+                "rnn_gpsr_candidate_count": self.rnn_gpsr_candidate_count,
+                "rnn_gpsr_proposal_count": self.rnn_gpsr_proposal_count,
+                "rnn_gpsr_cycles": self.rnn_gpsr_cycles,
+                "rnn_gpsr_rounds": self.rnn_gpsr_rounds,
+                "rnn_gpsr_feedback_fraction": self.rnn_gpsr_feedback_fraction,
+                "rnn_gpsr_quality_gate": self.rnn_gpsr_quality_gate,
+                "rnn_gpsr_maxsize": self.rnn_gpsr_maxsize,
+            }
+            if self.rnn_gpsr_seeding
+            else {}
+        )
+        backend_formula_options = (
+            {"formula_type": jl.Symbol(backend_formula_type)}
+            if self.rnn_gpsr_seeding or self.formula_type != "empirical"
+            else {}
+        )
+        backend_dimension_options = (
+            {
+                "X_dimensions": jl_array(self.X_dimensions_),
+                "y_dimensions": (
+                    jl_array(self.y_dimensions_)
+                    if isinstance(self.y_dimensions_, list)
+                    else self.y_dimensions_
+                ),
+            }
+            if self.formula_type != "empirical"
+            or self.X_dimensions_ is not None
+            or self.y_dimensions_ is not None
+            else {}
+        )
+        # ``rnn_generator`` is created after the options object below because it
+        # owns the Python-side PyTorch policy.  Keep this group empty until that
+        # callback has been constructed, then populate it immediately before
+        # calling ``equation_search``.
+        rnn_search_options = {}
 
         # Call to Julia backend.
         # See https://github.com/astroautomata/SymbolicRegression.jl/blob/master/src/OptionsStruct.jl
@@ -3082,7 +3155,6 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             tournament_selection_n=self.tournament_selection_n,
             # These have the same name:
             parsimony=self.parsimony,
-            formula_type=jl.Symbol(backend_formula_type),
             alpha=self.alpha,
             maxdepth=runtime_params.maxdepth,
             fast_cycle=self.fast_cycle,
@@ -3102,14 +3174,6 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             ncycles_per_iteration=self.ncycles_per_iteration,
             fraction_replaced=self.fraction_replaced,
             fraction_replaced_guesses=self.fraction_replaced_guesses,
-            rnn_gpsr_seeding=self.rnn_gpsr_seeding,
-            rnn_gpsr_seed_fraction=self.rnn_gpsr_seed_fraction,
-            rnn_gpsr_candidate_count=self.rnn_gpsr_candidate_count,
-            rnn_gpsr_proposal_count=self.rnn_gpsr_proposal_count,
-            rnn_gpsr_cycles=self.rnn_gpsr_cycles,
-            rnn_gpsr_rounds=self.rnn_gpsr_rounds,
-            rnn_gpsr_quality_gate=self.rnn_gpsr_quality_gate,
-            rnn_gpsr_maxsize=self.rnn_gpsr_maxsize,
             topn=self.topn,
             print_precision=self.print_precision,
             optimizer_algorithm=self.optimizer_algorithm,
@@ -3129,6 +3193,8 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             seed=seed,
             deterministic=self.deterministic,
             define_helper_functions=False,
+            **backend_formula_options,
+            **rnn_gpsr_options,
         )
 
         serialized_options = jl_serialize(options)
@@ -3142,8 +3208,6 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 jl_deserialize(self.julia_options_stream_), options
             )
 
-        python_rnn_generator = None
-        julia_rnn_generator = None
         if self.rnn_gpsr_seeding and saved_state is None:
             from .rnn_gpsr import (
                 TorchRNNConfig,
@@ -3174,6 +3238,12 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             julia_rnn_generator = make_julia_rnn_generator(
                 jl, python_rnn_generator
             )
+
+        rnn_search_options = (
+            {"rnn_generator": julia_rnn_generator}
+            if self.rnn_gpsr_seeding
+            else {}
+        )
 
         # Convert data to desired precision
 
@@ -3230,15 +3300,8 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 [str(v) for v in self.display_feature_names_in_]
             ),
             y_variable_names=jl_y_variable_names,
-            X_dimensions=jl_array(self.X_dimensions_),
-            y_dimensions=(
-                jl_array(self.y_dimensions_)
-                if isinstance(self.y_dimensions_, list)
-                else self.y_dimensions_
-            ),
             options=options,
             guesses=jl_guesses,
-            rnn_generator=julia_rnn_generator,
             numprocs=numprocs,
             parallelism=parallelism,
             saved_state=saved_state,
@@ -3254,6 +3317,8 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             verbosity=int(self.verbosity),
             logger=logger,
             **({"loss_type": loss_type} if loss_type is not None else {}),
+            **backend_dimension_options,
+            **rnn_search_options,
         )
         if self.logger_spec is not None:
             self.logger_spec.write_hparams(logger, self.get_params())

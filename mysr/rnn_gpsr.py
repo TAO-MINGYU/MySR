@@ -10,9 +10,26 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
+
+FormulaType = Literal["empirical", "semi_theoretical", "theoretical"]
+_FORMULA_TYPES = {"empirical", "semi_theoretical", "theoretical"}
+_SAMPLING_BATCH_SIZE = 256
+_SAMPLING_STALL_LIMIT = 3
+
+
+def _normalize_formula_type(value: Any) -> FormulaType:
+    """Validate the dimensional policy carried by the RNN-GPSR callback."""
+
+    normalized = str(value).strip().lower().lstrip(":")
+    if normalized not in _FORMULA_TYPES:
+        raise ValueError(
+            "RNN-GPSR formula_type must be one of "
+            "'empirical', 'semi_theoretical', or 'theoretical'"
+        )
+    return normalized  # type: ignore[return-value]
 
 
 @dataclass(frozen=True)
@@ -129,15 +146,30 @@ def _language_batch(
     return inputs, targets, mask
 
 
-def _make_policy(torch: Any, vocabulary_size: int, config: TorchRNNConfig):
+def _formula_type_bos_token(
+    vocabulary_size: int, formula_type: FormulaType
+) -> int:
+    # A distinct BOS token makes formula_type part of the recurrent policy's
+    # actual input, rather than diagnostics-only metadata. The backend remains
+    # the hard dimensional authority after decoding.
+    offsets = {"empirical": 1, "semi_theoretical": 2, "theoretical": 3}
+    return vocabulary_size + offsets[formula_type]
+
+
+def _make_policy(
+    torch: Any,
+    vocabulary_size: int,
+    config: TorchRNNConfig,
+    formula_type: FormulaType,
+):
     nn = torch.nn
-    bos_token = vocabulary_size + 1
+    bos_token = _formula_type_bos_token(vocabulary_size, formula_type)
 
     class ExpressionPolicyRNN(nn.Module):
         def __init__(self) -> None:
             super().__init__()
             self.embedding = nn.Embedding(
-                vocabulary_size + 2,
+                vocabulary_size + 4,
                 config.embedding_size,
                 padding_idx=0,
             )
@@ -239,14 +271,87 @@ def _sample_expression(
     return None
 
 
+def _sample_expression_batch(
+    torch: Any,
+    model: Any,
+    bos_token: int,
+    arities: Sequence[int],
+    max_length: int,
+    generator: Any,
+    batch_size: int,
+) -> list[list[int] | None]:
+    """Sample several expressions in parallel with one recurrent pass per step.
+
+    The previous sampler called the recurrent module once for every proposal.
+    Keeping the unfinished expressions in a batch removes that Python↔PyTorch
+    call overhead while preserving the same grammar feasibility mask.
+    """
+
+    if batch_size < 1:
+        return []
+    device = next(model.parameters()).device
+    arity_tensor = torch.as_tensor(arities, dtype=torch.long, device=device)
+    previous_token = torch.full(
+        (batch_size, 1), bos_token, dtype=torch.long, device=device
+    )
+    hidden = None
+    dangling = torch.ones(batch_size, dtype=torch.long, device=device)
+    active = torch.ones(batch_size, dtype=torch.bool, device=device)
+    sequences: list[list[int]] = [[] for _ in range(batch_size)]
+
+    for position in range(max_length):
+        logits, hidden = model.step(previous_token, hidden)
+        remaining = max_length - position - 1
+        next_dangling = dangling[:, None] - 1 + arity_tensor[None, :]
+        valid_mask = (next_dangling >= 0) & (next_dangling <= remaining)
+        active_before = active.clone()
+        no_valid = active_before & ~valid_mask.any(dim=1)
+        active[no_valid] = False
+
+        # Inactive rows still participate in the batched recurrent pass. Give
+        # them a harmless deterministic choice so multinomial receives a valid
+        # probability row; their sampled token is ignored below.
+        inactive = ~active
+        if bool(inactive.any()):
+            valid_mask[inactive] = False
+            valid_mask[inactive, 0] = True
+
+        constrained_logits = logits.masked_fill(~valid_mask, -torch.inf)
+        probabilities = torch.softmax(constrained_logits, dim=-1)
+        sampled = torch.multinomial(probabilities, 1, generator=generator).squeeze(1)
+        valid_active = active_before & ~no_valid
+        if bool(valid_active.any()):
+            active_indices = torch.nonzero(valid_active, as_tuple=False).flatten()
+            for row in active_indices.tolist():
+                token = int(sampled[row].item()) + 1
+                sequences[row].append(token)
+            dangling[valid_active] += arity_tensor[sampled[valid_active]] - 1
+            active[dangling == 0] = False
+
+        previous_token = (sampled + 1).unsqueeze(1)
+        if not bool(active.any()):
+            break
+
+    return [sequence if not active[index] and dangling[index] == 0 else None
+            for index, sequence in enumerate(sequences)]
+
+
 class TorchRNNGenerator:
     """Train an LSTM/GRU policy and generate grammar-complete expressions.
 
     The policy uses a risk-seeking autoregressive objective over the best-cost
-    quantile, adapted from Deep Symbolic Optimization. A held-out
-    Spearman gate rejects policies whose sequence likelihood does not track real
-    expression quality. MySRCore then compares generated candidates against a
-    separately evaluated random control group before GP-SR.
+    quantile of its current training set, adapted from Deep Symbolic
+    Optimization. The first round may use a grammar/dimension-aware structural
+    bootstrap corpus; later rounds use real costs from MySRCore lightweight GPSR
+    elites. MySRCore separately remains responsible for dimensional acceptance,
+    candidate evaluation, and GP evolution.
+
+    formula_type is part of the callback contract and selects a distinct policy
+    input token. The RNN is a proposal distribution, not the dimensional
+    authority: for semi_theoretical and theoretical the backend supplies an
+    independently generated corpus that passed the corresponding dimensional
+    gate and rejects every generated tree again before GPSR. This keeps the
+    neural policy useful without weakening the backend guarantee.
     """
 
     def __init__(self, config: TorchRNNConfig):
@@ -261,8 +366,13 @@ class TorchRNNGenerator:
         proposal_count: Any,
         max_length: Any,
         seed: Any,
+        formula_type: Any = "empirical",
+        feedback_round: Any = 1,
+        training_source: Any = "bootstrap_structural",
+        backend_costs_used: Any = False,
     ) -> list[list[int]]:
         torch = ensure_torch_available()
+        formula_type_value = _normalize_formula_type(formula_type)
         sequences = _as_sequences(training_sequences)
         costs = np.asarray([float(cost) for cost in training_costs], dtype=np.float64)
         arities = [int(arity) for arity in token_arities]
@@ -289,7 +399,9 @@ class TorchRNNGenerator:
         device = torch.device("cpu")
         with torch.random.fork_rng(devices=[]):
             torch.manual_seed(seed_value)
-            model, bos_token = _make_policy(torch, len(arities), self.config)
+            model, bos_token = _make_policy(
+                torch, len(arities), self.config, formula_type_value
+            )
             model = model.to(device)
             optimizer = torch.optim.AdamW(
                 model.parameters(),
@@ -367,8 +479,17 @@ class TorchRNNGenerator:
             )
             diagnostics = {
                 **asdict(self.config),
+                "formula_type": formula_type_value,
+                "dimension_policy": {
+                    "empirical": "ignore",
+                    "semi_theoretical": "compatible",
+                    "theoretical": "strict",
+                }[formula_type_value],
                 "seed": seed_value,
                 "training_count": len(sequences),
+                "training_source": str(training_source),
+                "feedback_round": int(feedback_round),
+                "backend_costs_used": bool(backend_costs_used),
                 "proposal_count": requested_count,
                 "validation_count": len(validation_indices),
                 "best_epoch": best_epoch,
@@ -387,26 +508,41 @@ class TorchRNNGenerator:
             generated: list[list[int]] = []
             seen: set[tuple[int, ...]] = set()
             max_attempts = max(20, 12 * requested_count)
-            with torch.no_grad():
-                for _ in range(max_attempts):
-                    sequence = _sample_expression(
+            attempts = 0
+            stalled_batches = 0
+            with torch.inference_mode():
+                while attempts < max_attempts and len(generated) < requested_count:
+                    batch_size = min(_SAMPLING_BATCH_SIZE, max_attempts - attempts)
+                    generated_before = len(generated)
+                    sequences_batch = _sample_expression_batch(
                         torch,
                         model,
                         bos_token,
                         arities,
                         maximum_length,
                         torch_generator,
+                        batch_size,
                     )
-                    if sequence is None:
-                        continue
-                    key = tuple(sequence)
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    generated.append(sequence)
-                    if len(generated) >= requested_count:
+                    attempts += batch_size
+                    for sequence in sequences_batch:
+                        if sequence is None:
+                            continue
+                        key = tuple(sequence)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        generated.append(sequence)
+                        if len(generated) >= requested_count:
+                            break
+                    stalled_batches = (
+                        stalled_batches + 1
+                        if len(generated) == generated_before
+                        else 0
+                    )
+                    if stalled_batches >= _SAMPLING_STALL_LIMIT:
                         break
             diagnostics["generated_count"] = len(generated)
+            diagnostics["sampling_attempts"] = attempts
             return generated
 
 
@@ -422,6 +558,10 @@ def make_julia_rnn_generator(jl: Any, generator: TorchRNNGenerator) -> Any:
             proposal_count,
             max_length,
             seed,
+            formula_type,
+            feedback_round,
+            training_source,
+            backend_costs_used,
         )
             result = py_generator(
                 training_sequences,
@@ -430,6 +570,10 @@ def make_julia_rnn_generator(jl: Any, generator: TorchRNNGenerator) -> Any:
                 proposal_count,
                 max_length,
                 seed,
+                formula_type,
+                feedback_round,
+                training_source,
+                backend_costs_used,
             )
             return PythonCall.pyconvert(Vector{Vector{Int}}, result)
         end

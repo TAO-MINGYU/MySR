@@ -6,7 +6,7 @@ scikit-learn 接口作为可追溯基线，并使用从 SymbolicRegression.jl �
 MySRCore.jl 作为 Julia 算法后端。
 
 MySR 不绑定特定学科；未来的 NuSR 将在 MySR 之上提供核物理专用能力。
-`1.0.0` 版本将公开入口和实现类统一为 `MySRRegressor`，并新增默认关闭的
+`1.1.0` 版本在 `1.0.0` 的基础上继续维护统一的 `MySRRegressor` 入口，并提供默认关闭的
 AI Feynman-inspired 自动特征工程（automated feature engineering）。该功能使用
 多层感知机（Multilayer Perceptron, MLP）代理模型探测输入变量间的固定和参数化
 广义对称性，再以 `suggest` 模式报告候选，或以 `augment` 模式把可重放候选追加到
@@ -38,13 +38,13 @@ MySR 的源码分为两个独立仓库：
 从 GitHub 安装当前固定版本：
 
 ```bash
-python -m pip install "git+https://github.com/TAO-MINGYU/MySR.git@v1.0.0"
+python -m pip install "git+https://github.com/TAO-MINGYU/MySR.git@v1.1.0"
 python -c "from mysr import MySRRegressor; print(MySRRegressor)"
 ```
 
 MySR 使用 JuliaPkg 管理 Julia 运行环境和依赖。首次导入时，JuliaPkg 读取随
 Python wheel 一起发布的 `mysr/juliapkg.json`，从
-`TAO-MINGYU/MySRCore.jl` 下载固定标签 `v1.0.0` 并完成依赖解析。这个机制与
+`TAO-MINGYU/MySRCore.jl` 下载固定标签 `v1.1.0` 并完成依赖解析。这个机制与
 固定基线 PySR 通过 GitHub URL 和版本标签解析 SymbolicRegression.jl 的方式
 相同；普通用户不需要预先安装 MySRCore.jl，也不需要把两个仓库放在相邻目录，
 并且当前安装不依赖 Julia General registry 中存在 MySRCore 条目。
@@ -54,7 +54,7 @@ Python wheel 一起发布的 `mysr/juliapkg.json`，从
 除自动特征工程配置外，`MySRRegressor` 也可以直接接收
 `formula_type="empirical"`、`"semi_theoretical"` 或 `"theoretical"`，并在 `fit`
 时配合 `X_dimensions`/`y_dimensions` 将量纲搜索策略传给 MySRCore。未提供量纲元数据时，
-只有 `empirical` 模式可以运行；半理论模式在开发版 MySRCore 中表示为唯一根外系数
+只有 `empirical` 模式可以运行；半理论模式在 MySRCore v1.1.0 中表示为唯一根外系数
 `C_dim * f(X; θ)`，并要求启用常数优化。
 
 该功能必须显式打开，并要求用户在 `MySRRegressor(formula_type=...)` 中显式声明公式类型。
@@ -107,6 +107,56 @@ Ridge 回归评价集合的联合预测能力，以 ε-lexicase 选择父代，�
 非支配排序保留候选。`max_evaluations` 是硬评价预算；该分支默认关闭。两个分支
 同时开启时都只读取原始 `X,y`，最终在一个全局生成列预算下去重和合并。
 `auto_feature_engineering=False` 是默认值，因此升级不会自动改变既有预处理流程。
+
+## RNN-GPSR 初始公式与用户 guesses
+
+MySR 保留 PySR 的 `guesses` 用户接口。传入的表达式会由 MySRCore 直接解析、
+优化常数并检查语法和量纲，然后优先放入正式搜索的初始种群；它们不会因为
+AI-Feynman-like 或 RNN-GPSR 开关而被丢弃。这里的“最高优先级”表示初始注入顺序
+优先于 RNN seed 和随机个体，并不表示绕过量纲或结构检查；最终 HOF 仍按
+MySRCore 的复杂度槽位规则维护。
+
+RNN-GPSR 是可选的初始种群提议器，不替代最后的 MySRCore 搜索。打开后，流程为：
+
+```text
+AI-Feynman-like 增广特征
+→ formula_type 条件化的 PyTorch RNN
+→ MySRCore 量纲硬检查与真实 loss
+→ MySRCore 轻量 GPSR
+→ 轻量 GPSR 精英反馈给 RNN
+→ 重复 rnn_gpsr_rounds 轮
+→ 正式 MySRCore GPSR
+```
+
+RNN 的原始采样仍可能被拒绝；任何进入轻量 GPSR、seed pool 或正式种群的表达式
+都必须再次通过 MySRCore 的权威量纲检查。用户可以分别设置 RNN、轻量 GPSR、
+反馈循环和最终 GPSR 参数：
+
+```python
+model = MySRRegressor(
+    formula_type="theoretical",
+    guesses=["x1"],  # 用户表达式优先注入 MySRCore
+    rnn_gpsr_seeding=True,
+    rnn_cell="gru",
+    rnn_hidden_size=64,
+    rnn_epochs=64,
+    rnn_gpsr_candidate_count=128,
+    rnn_gpsr_proposal_count=128,
+    rnn_gpsr_cycles=4,
+    rnn_gpsr_rounds=2,
+    rnn_gpsr_feedback_fraction=0.2,
+    niterations=100,  # 最终正式 MySRCore GPSR
+)
+model.fit(
+    X,
+    y,
+    variable_names=["x1", "x2"],
+    X_dimensions=[[1, 0, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0, 0]],
+    y_dimensions=[1, 0, 0, 0, 0, 0, 0],
+)
+```
+
+RNN-GPSR 默认关闭，并需要安装可选依赖：`python -m pip install "mysr[rnn]"`。
 
 ## 双仓开发模式
 
