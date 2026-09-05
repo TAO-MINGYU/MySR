@@ -668,6 +668,22 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         expression ``f(X; θ)`` and represents the public result as
         ``C_dim * f``. It requires ``X_dimensions`` and ``y_dimensions`` at fit time and
         constant optimization enabled.
+    mutation_affinity : {"family", "none"}
+        Static destination prior used by point operator and feature mutations.
+        ``"family"`` favors related built-in operators with uniform exploration;
+        ``"none"`` uses uniform destination weights. Default is ``"family"``.
+    mutation_affinity_strength : float
+        Relative weight assigned to recognized same-family operator destinations.
+        Must be positive. Default is ``4.0``.
+    mutation_affinity_exploration : float
+        Uniform exploration mixture for legal mutation destinations, in ``[0, 1]``.
+        Default is ``0.2``.
+    operator_affinity : mapping[int, array-like] | None
+        Optional arity-to-matrix overrides for operator destination weights. Matrix
+        rows are source operators and columns are destination operators.
+    feature_affinity : array-like | None
+        Optional square feature replacement weight matrix. It must match the number
+        of features used by a mutation.
     use_frequency : bool
         Whether to measure the frequency of complexities, and use that
         instead of parsimony to explore equation space. Will naturally
@@ -1207,6 +1223,11 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         complexity_mapping: str | None = None,
         parsimony: float = 0.0,
         formula_type: Literal["empirical", "semi_theoretical", "theoretical"] = "empirical",
+        mutation_affinity: Literal["family", "none"] = "family",
+        mutation_affinity_strength: float = 4.0,
+        mutation_affinity_exploration: float = 0.2,
+        operator_affinity: Mapping[int, ArrayLike] | None = None,
+        feature_affinity: ArrayLike | None = None,
         use_frequency: bool = True,
         use_frequency_in_tournament: bool = True,
         adaptive_parsimony_scaling: float = 1040.0,
@@ -1367,6 +1388,17 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 "formula_type must be 'empirical', 'semi_theoretical', or 'theoretical'"
             )
         self.formula_type = formula_type
+        if mutation_affinity not in {"family", "none"}:
+            raise ValueError("mutation_affinity must be 'family' or 'none'")
+        if not np.isfinite(mutation_affinity_strength) or mutation_affinity_strength <= 0:
+            raise ValueError("mutation_affinity_strength must be finite and positive")
+        if not 0 <= mutation_affinity_exploration <= 1:
+            raise ValueError("mutation_affinity_exploration must be in [0, 1]")
+        self.mutation_affinity = mutation_affinity
+        self.mutation_affinity_strength = mutation_affinity_strength
+        self.mutation_affinity_exploration = mutation_affinity_exploration
+        self.operator_affinity = operator_affinity
+        self.feature_affinity = feature_affinity
         self.use_frequency = use_frequency
         self.use_frequency_in_tournament = use_frequency_in_tournament
         self.adaptive_parsimony_scaling = adaptive_parsimony_scaling
@@ -2998,6 +3030,19 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             if self.default_mutations is None
             else convert_mutations(self.default_mutations)
         )
+        operator_affinity = None
+        if self.operator_affinity is not None:
+            operator_affinity = jl.Dict(
+                [
+                    jl.Pair(int(arity), jl_array(np.asarray(matrix, dtype=float)))
+                    for arity, matrix in self.operator_affinity.items()
+                ]
+            )
+        feature_affinity = (
+            None
+            if self.feature_affinity is None
+            else jl_array(np.asarray(self.feature_affinity, dtype=float))
+        )
         plugins = jl_array([plugin.julia_plugin() for plugin in (self.plugins or [])])
         default_plugins = (
             None
@@ -3193,6 +3238,11 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             seed=seed,
             deterministic=self.deterministic,
             define_helper_functions=False,
+            mutation_affinity=jl.Symbol(self.mutation_affinity),
+            mutation_affinity_strength=self.mutation_affinity_strength,
+            mutation_affinity_exploration=self.mutation_affinity_exploration,
+            operator_affinity=operator_affinity,
+            feature_affinity=feature_affinity,
             **backend_formula_options,
             **rnn_gpsr_options,
         )

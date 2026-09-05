@@ -24,6 +24,35 @@ def test_formula_type_rejects_unknown_values():
         raise AssertionError("invalid formula_type was accepted")
 
 
+def test_mutation_affinity_is_public_and_validated():
+    model = MySRRegressor(
+        mutation_affinity="none",
+        mutation_affinity_strength=2.5,
+        mutation_affinity_exploration=0.4,
+        operator_affinity={2: np.ones((4, 4))},
+        feature_affinity=np.eye(2),
+    )
+    params = model.get_params()
+    assert params["mutation_affinity"] == "none"
+    assert params["mutation_affinity_strength"] == 2.5
+    assert params["mutation_affinity_exploration"] == 0.4
+    assert params["operator_affinity"][2].shape == (4, 4)
+    assert params["feature_affinity"].shape == (2, 2)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"mutation_affinity": "invalid"},
+        {"mutation_affinity_strength": 0.0},
+        {"mutation_affinity_exploration": 1.1},
+    ],
+)
+def test_mutation_affinity_rejects_invalid_values(kwargs):
+    with pytest.raises(ValueError, match="mutation_affinity"):
+        MySRRegressor(**kwargs)
+
+
 def test_semi_theoretical_is_a_public_formula_type():
     model = MySRRegressor(formula_type="semi_theoretical")
     assert model.formula_type == "semi_theoretical"
