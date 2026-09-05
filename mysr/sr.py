@@ -3161,6 +3161,23 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             or self.y_dimensions_ is not None
             else {}
         )
+        mutation_affinity_options = (
+            {
+                "mutation_affinity": jl.Symbol(self.mutation_affinity),
+                "mutation_affinity_strength": self.mutation_affinity_strength,
+                "mutation_affinity_exploration": self.mutation_affinity_exploration,
+                "operator_affinity": operator_affinity,
+                "feature_affinity": feature_affinity,
+            }
+            if (
+                self.mutation_affinity != "family"
+                or self.mutation_affinity_strength != 4.0
+                or self.mutation_affinity_exploration != 0.2
+                or operator_affinity is not None
+                or feature_affinity is not None
+            )
+            else {}
+        )
         # ``rnn_generator`` is created after the options object below because it
         # owns the Python-side PyTorch policy.  Keep this group empty until that
         # callback has been constructed, then populate it immediately before
@@ -3238,12 +3255,8 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             seed=seed,
             deterministic=self.deterministic,
             define_helper_functions=False,
-            mutation_affinity=jl.Symbol(self.mutation_affinity),
-            mutation_affinity_strength=self.mutation_affinity_strength,
-            mutation_affinity_exploration=self.mutation_affinity_exploration,
-            operator_affinity=operator_affinity,
-            feature_affinity=feature_affinity,
             **backend_formula_options,
+            **mutation_affinity_options,
             **rnn_gpsr_options,
         )
 
