@@ -17,7 +17,8 @@ coverage/
 .DS_Store
 Thumbs.db
 
-# local collaboration and development records
+# Development-wide collaboration records live in the parent MySR_Dev workspace.
+# These legacy patterns remain harmless for independently copied old checkouts.
 /AGENTS.md
 /MYSR_DESIGN.md
 /memory/

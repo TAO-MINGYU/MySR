@@ -11,7 +11,7 @@ selection, and non-dominated error-complexity sorting controls survival.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import numpy as np
@@ -1226,12 +1226,42 @@ class FeatureEngineeringEnsemble:
             selected_signatures.extend(unseen)
             selected_signature_set.update(unseen)
 
-        self.accepted_proposals_ = [
+        # Names are part of the public replay contract and are passed to the
+        # Julia backend as variable identifiers.  Two different engines (or
+        # two syntactically different candidates) can nevertheless propose
+        # the same human-readable base name.  Keep the expression/signature
+        # selection intact, then disambiguate names deterministically instead
+        # of allowing duplicate dataframe columns or backend variables.
+        selected_proposals = [
             by_signature[signature][0] for signature in selected_signatures
         ]
+        used_names = set(self.variable_names_in_)
+        rename_map: dict[str, str] = {}
+        name_counts: dict[str, int] = {}
+        unique_proposals: list[FeatureProposal] = []
+        for proposal in selected_proposals:
+            base_name = str(proposal.name)
+            candidate_name = base_name
+            count = name_counts.get(base_name, 1)
+            while candidate_name in used_names:
+                count += 1
+                candidate_name = f"{base_name}__{count}"
+            name_counts[base_name] = count
+            used_names.add(candidate_name)
+            if candidate_name != base_name:
+                rename_map[base_name] = candidate_name
+                proposal = replace(proposal, name=candidate_name)
+            unique_proposals.append(proposal)
+        self.accepted_proposals_ = unique_proposals
         self.proposals_ = list(self.accepted_proposals_)
         self.accepted_bundles_ = [
-            bundle
+            replace(
+                bundle,
+                names=tuple(rename_map.get(name, name) for name in bundle.names),
+                downstream_columns=tuple(
+                    rename_map.get(name, name) for name in bundle.downstream_columns
+                ),
+            )
             for _, engine in engines
             for bundle in getattr(engine, "accepted_bundles_", [])
             if all(node.signature in selected_signature_set for node in bundle.nodes)

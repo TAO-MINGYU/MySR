@@ -67,3 +67,9 @@
 
 Algorithm implementation files retained from PySR remain attributed to PySR unless a
 later entry identifies a MySR-specific modification.
+## 2026-09-07 - MySR 1.1.1
+
+- Fixed RNN-GPSR teacher-forcing grammar-mask dimensions when the active batch's
+  longest expression is shorter than the configured maximum expression length.
+- Added regression coverage for mixed short sequences and aligned the pinned
+  MySRCore backend to `v1.1.1`.

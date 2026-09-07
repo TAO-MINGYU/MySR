@@ -1,5 +1,6 @@
 """Functions for initializing the Julia environment and installing deps."""
 
+import os
 from typing import Any, Callable, cast, overload
 
 import numpy as np
@@ -35,7 +36,19 @@ def _load_cluster_manager(cluster_manager: str):
         jl.seval("using SlurmClusterManager: SlurmManager")
         return jl.seval("""
             (numprocs; kws...) -> begin
-                manager = SlurmManager()
+                # A large single-node allocation can take longer than the
+                # upstream 60-second default to report every worker through
+                # srun.  Keep the default bounded but scale it with the
+                # requested worker count; callers may override it explicitly
+                # with MYSR_SLURM_LAUNCH_TIMEOUT.
+                launch_timeout = max(
+                    60.0,
+                    something(
+                        tryparse(Float64, get(ENV, "MYSR_SLURM_LAUNCH_TIMEOUT", "")),
+                        0.5 * numprocs,
+                    ),
+                )
+                manager = SlurmManager(launch_timeout=launch_timeout)
                 manager.ntasks == numprocs || error(
                     "Requested $numprocs processes, but Slurm allocation has $(manager.ntasks) tasks. " *
                     "Set Slurm `--ntasks`/`--ntasks-per-node` and `procs` to the same value."

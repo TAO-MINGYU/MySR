@@ -11,10 +11,14 @@ from mysr.rnn_gpsr import (
     TorchRNNConfig,
     TorchRNNGenerator,
     _formula_type_bos_token,
+    _grammar_token_mask,
+    _language_batch,
     _make_policy,
     _normalize_formula_type,
+    _policy_loss,
     _rank_targets,
     _sample_expression_batch,
+    _sequence_log_probabilities,
     _spearman,
 )
 
@@ -23,6 +27,88 @@ def test_rank_targets_reward_lower_real_cost() -> None:
     targets = _rank_targets(np.asarray([10.0, 1.0, np.inf, 5.0]))
 
     assert targets[1] > targets[3] > targets[0] > targets[2]
+
+
+def test_rank_targets_do_not_invent_quality_order_for_ties():
+    ranks = _rank_targets(np.asarray([2.0, 1.0, 2.0, np.inf, np.nan]))
+    assert ranks[0] == ranks[2]
+    assert ranks[3] == ranks[4]
+    np.testing.assert_array_equal(_rank_targets(np.ones(8)), np.zeros(8))
+
+
+def test_length_penalty_changes_policy_gradient():
+    torch = pytest.importorskip("torch")
+    targets = torch.tensor([[1, 0, 0], [3, 1, 2], [2, 0, 0], [3, 2, 1]])
+    mask = targets != 0
+    qualities = torch.tensor([0.8, 1.0, -0.5, 0.5])
+    gradients = []
+    for penalty in (0.0, 1.0):
+        logits = torch.zeros(4, 3, 3, requires_grad=True)
+        loss = _policy_loss(torch, logits, targets, mask, qualities, 0.5, 0.0,
+                            rank_loss_weight=0.0, diversity_weight=0.0,
+                            length_penalty=penalty)
+        loss.backward()
+        gradients.append(logits.grad.clone())
+    assert not torch.allclose(*gradients)
+
+
+def test_training_grammar_mask_matches_prefix_feasibility():
+    torch = pytest.importorskip("torch")
+    masks = _grammar_token_mask(
+        torch,
+        [[3, 3, 1, 1, 2]],
+        [0, 0, 2],
+        5,
+        torch.device("cpu"),
+    )
+
+    # At the final prefix only a leaf can close the remaining dangling slot;
+    # the binary token would exceed the length ceiling.
+    assert masks.shape == (1, 5, 3)
+    assert masks[0, 4].tolist() == [True, True, False]
+
+
+def test_training_grammar_mask_matches_shorter_teacher_forced_batch():
+    torch = pytest.importorskip("torch")
+    sequences = [[1], [2], [3, 1, 2], [3, 2, 1], [1], [2], [3, 1, 1], [3, 2, 2]]
+    inputs, targets, sequence_mask = _language_batch(
+        torch, sequences, 4, torch.device("cpu")
+    )
+    # max_length is deliberately larger than the actual batch time dimension.
+    grammar_mask = _grammar_token_mask(
+        torch, sequences, [0, 0, 2], 36, torch.device("cpu"), mask_length=inputs.shape[1]
+    )
+    logits = torch.zeros(8, inputs.shape[1], 3)
+    log_probabilities = _sequence_log_probabilities(
+        torch, logits, targets, sequence_mask, valid_token_mask=grammar_mask
+    )
+    assert grammar_mask.shape == (8, inputs.shape[1], 3)
+    assert torch.isfinite(log_probabilities).all()
+
+
+def test_elite_supervision_changes_policy_gradient():
+    torch = pytest.importorskip("torch")
+    targets = torch.tensor([[1, 0], [2, 0], [3, 1], [3, 2]])
+    mask = targets != 0
+    qualities = torch.tensor([1.0, 0.5, -0.5, -1.0])
+    gradients = []
+    for weight in (0.0, 0.5):
+        logits = torch.zeros(4, 2, 3, requires_grad=True)
+        loss = _policy_loss(
+            torch,
+            logits,
+            targets,
+            mask,
+            qualities,
+            0.5,
+            0.0,
+            rank_loss_weight=0.0,
+            elite_supervision_weight=weight,
+            diversity_weight=0.0,
+        )
+        loss.backward()
+        gradients.append(logits.grad.clone())
+    assert not torch.allclose(*gradients)
 
 
 def test_spearman_gate_uses_rank_order() -> None:
@@ -121,6 +207,33 @@ def test_batched_sampler_returns_complete_grammar_trees() -> None:
             dangling += [0, 0, 2][token - 1] - 1
             assert dangling >= 0
         assert dangling == 0
+
+
+def test_batched_sampler_supports_bounded_exploration_controls() -> None:
+    torch = pytest.importorskip("torch")
+    model, bos_token = _make_policy(
+        torch,
+        3,
+        TorchRNNConfig(hidden_size=8, embedding_size=4),
+        "empirical",
+    )
+    generator = torch.Generator(device="cpu")
+    generator.manual_seed(20260903)
+    with torch.no_grad():
+        proposals = _sample_expression_batch(
+            torch,
+            model,
+            bos_token,
+            [0, 0, 2],
+            7,
+            generator,
+            16,
+            temperature=0.8,
+            top_k=2,
+            top_p=0.9,
+        )
+
+    assert any(sequence is not None for sequence in proposals)
 
 
 def test_ai_feynman_features_are_visible_to_rnn_gpsr_entry() -> None:
@@ -243,6 +356,10 @@ def test_rnn_gpsr_defaults_preserve_existing_initialization() -> None:
     assert model.get_params()["rnn_cell"] == "lstm"
     assert model.get_params()["rnn_patience"] == 12
     assert model.get_params()["rnn_entropy_weight"] == pytest.approx(0.005)
+    assert model.get_params()["rnn_rank_loss_weight"] == pytest.approx(0.35)
+    assert model.get_params()["rnn_elite_supervision_weight"] == pytest.approx(0.15)
+    assert model.get_params()["rnn_sampling_top_p"] == pytest.approx(1.0)
+    assert model.get_params()["rnn_replay_fraction"] == pytest.approx(0.25)
     assert model.get_params()["rnn_gpsr_quality_gate"] is True
     assert model.get_params()["rnn_gpsr_feedback_fraction"] == pytest.approx(0.2)
     model._validate_and_modify_params()
@@ -266,6 +383,14 @@ def test_rnn_gpsr_defaults_preserve_existing_initialization() -> None:
         ("rnn_validation_fraction", 0.5),
         ("rnn_min_validation_spearman", 1.1),
         ("rnn_top_fraction", 0.0),
+        ("rnn_rank_loss_weight", -0.1),
+        ("rnn_elite_supervision_weight", -0.1),
+        ("rnn_diversity_weight", -0.1),
+        ("rnn_length_penalty", -0.1),
+        ("rnn_sampling_temperature", 0.0),
+        ("rnn_sampling_top_k", -1),
+        ("rnn_sampling_top_p", 0.0),
+        ("rnn_replay_fraction", 1.1),
         ("rnn_gpsr_cycles", -1),
         ("rnn_gpsr_rounds", 0),
         ("rnn_gpsr_feedback_fraction", 1.1),

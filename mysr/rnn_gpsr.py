@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 import numpy as np
 
@@ -48,6 +48,14 @@ class TorchRNNConfig:
     top_fraction: float = 0.2
     patience: int = 12
     entropy_weight: float = 0.005
+    rank_loss_weight: float = 0.35
+    elite_supervision_weight: float = 0.15
+    diversity_weight: float = 0.02
+    length_penalty: float = 0.0
+    sampling_temperature: float = 1.0
+    sampling_top_k: int = 0
+    sampling_top_p: float = 1.0
+    replay_fraction: float = 0.25
 
 
 def ensure_torch_available() -> Any:
@@ -73,15 +81,36 @@ def _as_sequences(values: Iterable[Iterable[Any]]) -> list[list[int]]:
 
 
 def _rank_targets(costs: np.ndarray) -> np.ndarray:
-    """Map lower costs to targets in [-1, 1], with the best expression at 1."""
+    """Map lower costs to tied-aware targets in ``[-1, 1]``.
 
-    finite_costs = np.where(np.isfinite(costs), costs, np.inf)
-    order = np.argsort(finite_costs, kind="stable")
-    targets = np.empty(len(costs), dtype=np.float32)
-    if len(costs) == 1:
+    Structural bootstrap corpora frequently contain equal-complexity examples.
+    A stable index-based ranking would manufacture a false preference among
+    ties and inject noise into the RNN feedback loop, so equal finite costs
+    (and all non-finite costs) receive the same target.
+    """
+
+    values = np.asarray(costs, dtype=np.float64)
+    normalized = np.where(np.isfinite(values), values, np.inf)
+    order = np.argsort(normalized, kind="stable")
+    targets = np.empty(len(values), dtype=np.float32)
+    if len(values) == 1:
         targets[0] = 1.0
         return targets
-    targets[order] = np.linspace(1.0, -1.0, len(costs), dtype=np.float32)
+    groups: list[np.ndarray] = []
+    start = 0
+    while start < len(order):
+        end = start + 1
+        while end < len(order) and normalized[order[end]] == normalized[order[start]]:
+            end += 1
+        groups.append(order[start:end])
+        start = end
+    levels = (
+        np.zeros(1, dtype=np.float32)
+        if len(groups) == 1
+        else np.linspace(1.0, -1.0, len(groups), dtype=np.float32)
+    )
+    for level, group in zip(levels, groups):
+        targets[group] = level
     return targets
 
 
@@ -146,6 +175,49 @@ def _language_batch(
     return inputs, targets, mask
 
 
+def _grammar_token_mask(
+    torch: Any,
+    sequences: Sequence[Sequence[int]],
+    arities: Sequence[int],
+    max_length: int,
+    device: Any,
+    mask_length: Optional[int] = None,
+):
+    """Build per-prefix legality masks for teacher-forced RNN training.
+
+    Sampling already applies the prefix grammar mask. Applying the same mask to
+    the training logits prevents the policy from spending probability mass on
+    tokens that could never complete a tree, which is especially important when
+    the vocabulary contains many unary/binary operators.
+    """
+
+    # ``max_length`` is the configured completion ceiling.  The returned
+    # tensor must instead use the batch's actual time dimension so it can be
+    # applied to teacher-forced logits when the longest training sequence is
+    # shorter than that ceiling.
+    output_length = max_length if mask_length is None else int(mask_length)
+    if output_length < 1 or output_length > max_length:
+        raise ValueError("RNN-GPSR mask_length must be in [1, max_length]")
+    vocabulary_size = len(arities)
+    masks = torch.ones(
+        (len(sequences), output_length, vocabulary_size),
+        dtype=torch.bool,
+        device=device,
+    )
+    for row, sequence in enumerate(sequences):
+        dangling = 1
+        for position, token in enumerate(sequence):
+            remaining = max_length - position - 1
+            valid = [
+                0 <= dangling - 1 + arity <= remaining for arity in arities
+            ]
+            masks[row, position] = torch.as_tensor(
+                valid, dtype=torch.bool, device=device
+            )
+            dangling += int(arities[token - 1]) - 1
+    return masks
+
+
 def _formula_type_bos_token(
     vocabulary_size: int, formula_type: FormulaType
 ) -> int:
@@ -194,8 +266,16 @@ def _make_policy(
 
 
 def _sequence_log_probabilities(
-    torch: Any, logits, targets, mask, *, normalize_by_length: bool = True
+    torch: Any,
+    logits,
+    targets,
+    mask,
+    *,
+    normalize_by_length: bool = True,
+    valid_token_mask: Any = None,
 ):
+    if valid_token_mask is not None:
+        logits = logits.masked_fill(~valid_token_mask, -torch.inf)
     token_losses = torch.nn.functional.cross_entropy(
         logits.reshape(-1, logits.shape[-1]),
         (targets.reshape(-1) - 1).clamp_min(0),
@@ -218,23 +298,69 @@ def _policy_loss(
     quality_targets,
     top_fraction: float,
     entropy_weight: float,
+    rank_loss_weight: float = 0.35,
+    diversity_weight: float = 0.02,
+    length_penalty: float = 0.0,
+    elite_supervision_weight: float = 0.15,
+    valid_token_mask: Any = None,
 ):
     sequence_log_probabilities = _sequence_log_probabilities(
-        torch, logits, targets, mask, normalize_by_length=False
+        torch,
+        logits,
+        targets,
+        mask,
+        normalize_by_length=False,
+        valid_token_mask=valid_token_mask,
     )
-    threshold = torch.quantile(quality_targets, 1.0 - top_fraction)
-    elite_mask = quality_targets >= threshold
-    advantages = (quality_targets - threshold).clamp_min(0.0)
+    lengths = mask.sum(dim=1).to(sequence_log_probabilities.dtype)
+    normalized_lengths = lengths / lengths.new_tensor(max(1, mask.shape[1]))
+    effective_quality = quality_targets - length_penalty * normalized_lengths
+    threshold = torch.quantile(effective_quality, 1.0 - top_fraction)
+    elite_mask = effective_quality >= threshold
+    advantages = (effective_quality - threshold).clamp_min(0.0)
     elite_advantages = advantages[elite_mask]
     risk_seeking_loss = -(
         sequence_log_probabilities[elite_mask] * elite_advantages.detach()
     ).sum() / elite_advantages.sum().clamp_min(1.0e-6)
 
+    # Pairwise ranking uses all non-tied training examples.  This is more
+    # informative than throwing away the lower-cost tail and stabilizes the
+    # policy when a feedback round contains only a few elites.
+    quality_delta = effective_quality[:, None] - effective_quality[None, :]
+    score_delta = sequence_log_probabilities[:, None] - sequence_log_probabilities[None, :]
+    pair_mask = torch.triu(torch.ones_like(quality_delta, dtype=torch.bool), diagonal=1)
+    pair_mask &= quality_delta.abs() > 1.0e-6
+    pair_sign = torch.sign(quality_delta[pair_mask])
+    pair_weight = quality_delta[pair_mask].abs().detach()
+    pairwise_loss = torch.nn.functional.softplus(-pair_sign * score_delta[pair_mask])
+    pairwise_loss = (pairwise_loss * pair_weight).sum() / pair_weight.sum().clamp_min(1.0e-6)
+
+    # Priority-queue-style supervised pressure on the best expressions.  The
+    # risk-seeking term learns a quality-weighted score, while this normalized
+    # likelihood term directly increases the probability of elite trajectories.
+    # It remains finite when all examples tie (then every example is an elite).
+    normalized_log_probabilities = _sequence_log_probabilities(
+        torch,
+        logits,
+        targets,
+        mask,
+        valid_token_mask=valid_token_mask,
+    )
+    elite_supervision_loss = -normalized_log_probabilities[elite_mask].mean()
+
     probabilities = torch.softmax(logits, dim=-1)
     log_probabilities = torch.log_softmax(logits, dim=-1)
     token_entropy = -(probabilities * log_probabilities).sum(dim=-1)
     entropy = token_entropy[mask].mean()
-    return risk_seeking_loss - entropy_weight * entropy
+    marginal = probabilities[mask].mean(dim=0)
+    marginal_entropy = -(marginal * torch.log(marginal.clamp_min(1.0e-8))).sum()
+    return (
+        risk_seeking_loss
+        + rank_loss_weight * pairwise_loss
+        + elite_supervision_weight * elite_supervision_loss
+        - entropy_weight * entropy
+        - diversity_weight * marginal_entropy
+    )
 
 
 def _sample_expression(
@@ -279,6 +405,9 @@ def _sample_expression_batch(
     max_length: int,
     generator: Any,
     batch_size: int,
+    temperature: float = 1.0,
+    top_k: int = 0,
+    top_p: float = 1.0,
 ) -> list[list[int] | None]:
     """Sample several expressions in parallel with one recurrent pass per step.
 
@@ -317,6 +446,23 @@ def _sample_expression_batch(
             valid_mask[inactive, 0] = True
 
         constrained_logits = logits.masked_fill(~valid_mask, -torch.inf)
+        if temperature != 1.0:
+            constrained_logits = constrained_logits / temperature
+        if top_k > 0 and top_k < constrained_logits.shape[1]:
+            kth = torch.topk(constrained_logits, top_k, dim=1).values[:, -1].unsqueeze(1)
+            constrained_logits = constrained_logits.masked_fill(
+                constrained_logits < kth, -torch.inf
+            )
+        if top_p < 1.0:
+            sorted_logits, sorted_indices = torch.sort(
+                constrained_logits, descending=True, dim=1
+            )
+            sorted_probabilities = torch.softmax(sorted_logits, dim=1)
+            cumulative = torch.cumsum(sorted_probabilities, dim=1)
+            remove = cumulative - sorted_probabilities > top_p
+            remove[:, 0] = False
+            remove_mask = torch.zeros_like(remove).scatter(1, sorted_indices, remove)
+            constrained_logits = constrained_logits.masked_fill(remove_mask, -torch.inf)
         probabilities = torch.softmax(constrained_logits, dim=-1)
         sampled = torch.multinomial(probabilities, 1, generator=generator).squeeze(1)
         valid_active = active_before & ~no_valid
@@ -358,6 +504,25 @@ class TorchRNNGenerator:
         self.config = config
         self.diagnostics_: list[dict[str, Any]] = []
 
+    def _validate_config(self) -> None:
+        config = self.config
+        if (
+            config.rank_loss_weight < 0
+            or config.elite_supervision_weight < 0
+            or config.diversity_weight < 0
+        ):
+            raise ValueError("RNN-GPSR auxiliary loss weights must be non-negative")
+        if config.length_penalty < 0:
+            raise ValueError("RNN-GPSR length_penalty must be non-negative")
+        if config.sampling_temperature <= 0:
+            raise ValueError("RNN-GPSR sampling_temperature must be positive")
+        if config.sampling_top_k < 0:
+            raise ValueError("RNN-GPSR sampling_top_k must be non-negative")
+        if not 0 < config.sampling_top_p <= 1:
+            raise ValueError("RNN-GPSR sampling_top_p must be in (0, 1]")
+        if not 0 <= config.replay_fraction <= 1:
+            raise ValueError("RNN-GPSR replay_fraction must be in [0, 1]")
+
     def __call__(
         self,
         training_sequences: Iterable[Iterable[Any]],
@@ -372,6 +537,7 @@ class TorchRNNGenerator:
         backend_costs_used: Any = False,
     ) -> list[list[int]]:
         torch = ensure_torch_available()
+        self._validate_config()
         formula_type_value = _normalize_formula_type(formula_type)
         sequences = _as_sequences(training_sequences)
         costs = np.asarray([float(cost) for cost in training_costs], dtype=np.float64)
@@ -382,6 +548,10 @@ class TorchRNNGenerator:
             raise ValueError("RNN-GPSR training sequences and costs have different lengths")
         if len(sequences) < 8:
             raise ValueError("PyTorch RNN-GPSR requires at least eight training expressions")
+        if any(len(sequence) > maximum_length for sequence in sequences):
+            raise ValueError(
+                "RNN-GPSR max_length must cover every training expression"
+            )
         if not arities or any(arity < 0 for arity in arities):
             raise ValueError("RNN-GPSR token arities must be non-negative")
         if max(token for sequence in sequences for token in sequence) > len(arities):
@@ -411,6 +581,14 @@ class TorchRNNGenerator:
             inputs, targets, sequence_mask = _language_batch(
                 torch, sequences, bos_token, device
             )
+            grammar_mask = _grammar_token_mask(
+                torch,
+                sequences,
+                arities,
+                maximum_length,
+                device,
+                mask_length=inputs.shape[1],
+            )
             quality_tensor = torch.as_tensor(
                 quality_targets, dtype=torch.float32, device=device
             )
@@ -437,6 +615,11 @@ class TorchRNNGenerator:
                     quality_tensor[train_index_tensor],
                     self.config.top_fraction,
                     self.config.entropy_weight,
+                    rank_loss_weight=self.config.rank_loss_weight,
+                    diversity_weight=self.config.diversity_weight,
+                    length_penalty=self.config.length_penalty,
+                    elite_supervision_weight=self.config.elite_supervision_weight,
+                    valid_token_mask=grammar_mask[train_index_tensor],
                 )
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -450,6 +633,7 @@ class TorchRNNGenerator:
                         validation_logits,
                         targets[validation_index_tensor],
                         sequence_mask[validation_index_tensor],
+                        valid_token_mask=grammar_mask[validation_index_tensor],
                     ).cpu().numpy()
                 validation_spearman = _spearman(
                     validation_scores, quality_targets[validation_indices]
@@ -522,6 +706,9 @@ class TorchRNNGenerator:
                         maximum_length,
                         torch_generator,
                         batch_size,
+                        self.config.sampling_temperature,
+                        self.config.sampling_top_k,
+                        self.config.sampling_top_p,
                     )
                     attempts += batch_size
                     for sequence in sequences_batch:
@@ -541,6 +728,40 @@ class TorchRNNGenerator:
                     )
                     if stalled_batches >= _SAMPLING_STALL_LIMIT:
                         break
+            sampled_count = len(generated)
+            replay_count = min(
+                requested_count,
+                round(requested_count * self.config.replay_fraction),
+            )
+            if replay_count:
+                replay_indices = sorted(
+                    range(len(sequences)),
+                    key=lambda index: (
+                        not np.isfinite(costs[index]),
+                        costs[index] if np.isfinite(costs[index]) else np.inf,
+                        index,
+                    ),
+                )
+                replayed: list[list[int]] = []
+                replay_keys: set[tuple[int, ...]] = set()
+                for index in replay_indices:
+                    sequence = sequences[index]
+                    key = tuple(sequence)
+                    if key in replay_keys:
+                        continue
+                    replay_keys.add(key)
+                    replayed.append(list(sequence))
+                    if len(replayed) >= replay_count:
+                        break
+                generated = replayed + [
+                    sequence
+                    for sequence in generated
+                    if tuple(sequence) not in replay_keys
+                ]
+                generated = generated[:requested_count]
+            actual_replay_count = min(len(generated), replay_count)
+            diagnostics["sampled_count"] = sampled_count
+            diagnostics["replay_count"] = actual_replay_count
             diagnostics["generated_count"] = len(generated)
             diagnostics["sampling_attempts"] = attempts
             return generated
