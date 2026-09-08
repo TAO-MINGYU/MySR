@@ -1,5 +1,12 @@
 # Fork changes
 
+## 2026-09-08 - MySR 1.1.2
+
+- Published the patch release paired with MySRCore 1.1.2 for the corrected
+  benchmark scoring and capability ablation protocol.
+- Kept the 1.1.1 RNN-GPSR length-alignment behavior and exposed no new search
+  defaults; the release isolates the benchmark fixes from algorithm changes.
+
 ## 2026-09-02 - MySR 1.1.0
 
 - Added formula_type-conditioned RNN-GPSR proposals with a PyTorch RNN policy,
