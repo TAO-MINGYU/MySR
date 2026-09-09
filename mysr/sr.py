@@ -2853,6 +2853,14 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             else:
                 X, y = denoise(X, y, Xresampled=Xresampled, random_state=random_state)
 
+        # Keep the public capability metadata total even when automatic feature
+        # engineering is disabled.  The disabled path has no generated columns,
+        # so its augmented feature set is exactly the post-selection raw names;
+        # leaving this attribute as ``None`` forces downstream benchmark/reporting
+        # code to special-case a successful search.
+        if not self.auto_feature_engineering:
+            self.augmented_feature_names_ = np.asarray(variable_names, dtype=str)
+
         return X, y, variable_names, complexity_of_variables, X_dimensions, y_dimensions
 
     def _run(

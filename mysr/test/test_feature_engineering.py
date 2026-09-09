@@ -414,6 +414,31 @@ def test_regressor_suggest_and_augment_modes_have_distinct_effects():
     assert augment_result[2][-1] == "afe_sub_0_1"
 
 
+def test_regressor_disabled_feature_engineering_exposes_raw_augmented_names():
+    X = _positive_data(5)
+    y = X[:, 0] - X[:, 1]
+    model = MySRRegressor(auto_feature_engineering=False)
+    model.feature_names_in_ = np.asarray(["a", "b", "c"])
+    model.display_feature_names_in_ = model.feature_names_in_
+    model.nout_ = 1
+
+    result = model._pre_transform_training_data(
+        X,
+        y,
+        None,
+        model.feature_names_in_,
+        None,
+        None,
+        None,
+        check_random_state(5),
+    )
+
+    assert result[0].shape == X.shape
+    np.testing.assert_array_equal(
+        model.augmented_feature_names_, np.asarray(["a", "b", "c"])
+    )
+
+
 def test_constrained_feature_engineering_requires_dimensions():
     X = _positive_data(6)
     y = X[:, 0] - X[:, 1]
