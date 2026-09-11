@@ -1,5 +1,16 @@
 # Fork changes
 
+## 2026-09-11 - MySR 1.1.3
+
+- Refined AFE feature-seed exploration and replay diversity, adding reciprocal and
+  normalized-sub operators by default and expanding residual-complementary beam breadth.
+- Strengthened RNN-GPSR proposal path with length-aware replay ranking and
+  deterministic fallback fill to avoid underfilled proposal batches.
+- Raised RNN-GPSR default search budgets (candidate count, proposal count,
+  rounds) to better expose high-compute potential on long-budget runs.
+- Updated release metadata to `v1.1.3`/`MySRCore` `v1.1.3` for synchronized
+  deployment.
+
 ## 2026-09-08 - MySR 1.1.2
 
 - Published the patch release paired with MySRCore 1.1.2 for the corrected

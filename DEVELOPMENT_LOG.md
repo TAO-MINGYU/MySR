@@ -127,3 +127,15 @@
 - **Verification**：AFE/RNN 与 feature-engineering focused suite 在临时可写 Julia depot 下
   `113 passed`；新增 disabled-AFE raw-name regression 通过。
 - **Residual/Unknown**：该修复尚未发布新的 MySR tag，也尚未在 RS 上重跑四组 benchmark。
+
+## 2026-09-11 - Final 1.1.3 enhancement pass
+
+- **变更类型**：AFE 与 RNN-GPSR 能力极限补强（本地可控范围内）与版本对齐。
+- **Confirmed**：在前端扩展了 AFE 结构候选能力（`normalized_sub`、`reciprocal`、`exp`）并放宽了
+  FEAT-like 种群探索上限与 beam 规模；增强 RNN-GPSR proposals 的 replay 顺序与回填策略；
+  并将 RNN-GPSR 默认候选/提案数与 feedback 轮次上调（160/160/3）。
+- **确认路径**：`mysr/feature_engineering.py`、`mysr/feat_engine.py`、`mysr/rnn_gpsr.py`、
+  `mysr/sr.py`、`mysr/juliapkg.json`、`mysr/test/test_juliapkg_config.py`、`pyproject.toml`。
+- **Validation**：`python -m compileall` 覆盖了改动文件；`test_juliapkg_config` 在当前
+  `env_mysr` 下受 Julia depot 只读约束而不可完成（`read-only file system`）。
+- **Decision**：将本次变更归档为 `MySR 1.1.3`，与 MySRCore 1.1.3 同步发布候选。

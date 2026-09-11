@@ -737,10 +737,10 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     rnn_gpsr_candidate_count : int
         Number of structural-prior expressions used to fit the recurrent
         generator in the bootstrap round. These are not backend-evaluated
-        individuals. Default is `128`.
+        individuals. Default is `160`.
     rnn_gpsr_proposal_count : int
         Number of expression individuals requested from the recurrent generator
-        per feedback round. Default is `128`.
+        per feedback round. Default is `160`.
     rnn_hidden_size : int
         Hidden-state width of the PyTorch recurrent generator. Default is `32`.
     rnn_cell : {"lstm", "gru"}
@@ -793,7 +793,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         Number of lightweight GP-SR cycles per RNN/GPSR feedback round.
         Default is `4`.
     rnn_gpsr_rounds : int
-        Number of RNN → GP-SR → feedback rounds. Default is `2`.
+        Number of RNN → GP-SR → feedback rounds. Default is `3`.
     rnn_gpsr_feedback_fraction : float
         Fraction of the best lightweight GPSR members appended to the next RNN
         training set after each feedback round. Default is `0.2`.
@@ -1258,8 +1258,8 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         fraction_replaced_guesses: float = 0.001,
         rnn_gpsr_seeding: bool = False,
         rnn_gpsr_seed_fraction: float = 0.5,
-        rnn_gpsr_candidate_count: int = 128,
-        rnn_gpsr_proposal_count: int = 128,
+        rnn_gpsr_candidate_count: int = 160,
+        rnn_gpsr_proposal_count: int = 160,
         rnn_hidden_size: int = 32,
         rnn_cell: Literal["lstm", "gru"] = "lstm",
         rnn_embedding_size: int = 16,
@@ -1281,7 +1281,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         rnn_sampling_top_p: float = 1.0,
         rnn_replay_fraction: float = 0.25,
         rnn_gpsr_cycles: int = 4,
-        rnn_gpsr_rounds: int = 2,
+        rnn_gpsr_rounds: int = 3,
         rnn_gpsr_feedback_fraction: float = 0.2,
         rnn_gpsr_quality_gate: bool = True,
         rnn_gpsr_maxsize: int | None = None,

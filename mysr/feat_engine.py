@@ -114,7 +114,7 @@ class FEATLikeFeatureEngineer:
 
     @staticmethod
     def _validate_config(config: FEATEngineConfig) -> None:
-        binary_allowed = {"add", "sub", "mul", "div"}
+        binary_allowed = {"add", "sub", "mul", "div", "normalized_sub"}
         unary_allowed = {
             "square",
             "cube",
@@ -830,10 +830,12 @@ class FEATLikeFeatureEngineer:
             if np.isfinite(individual.construction_nmse)
         ]
         pair_anchor_count = min(
-            len(ranked_nodes), max(1, min(3, self.config.population_size // 8))
+            len(ranked_nodes),
+            max(2, min(6, max(1, self.config.population_size // 4))),
         )
         pair_candidate_count = min(
-            len(ranked_nodes), max(12, min(24, self.config.population_size))
+            len(ranked_nodes),
+            max(24, min(64, max(1, self.config.population_size * 2))),
         )
         if self.config.max_bundle_size >= 2:
             seeded_pairs: set[tuple[str, ...]] = set()
@@ -856,7 +858,7 @@ class FEATLikeFeatureEngineer:
         # candidates to the strongest bundles found so far. This gives bundles
         # of size 3+ a direct path to the archive before stochastic mutation.
         if self.config.max_bundle_size >= 3 and initial_population:
-            beam_width = max(2, min(6, self.config.population_size // 4))
+            beam_width = max(3, min(8, self.config.population_size // 3))
             candidate_pool = ranked_nodes
             beam = sorted(
                 initial_population,
@@ -869,7 +871,7 @@ class FEATLikeFeatureEngineer:
                 for base in beam:
                     ordered_candidates = self._residual_candidate_order(
                         base, candidate_pool
-                    )[: min(len(candidate_pool), 24)]
+                    )[: min(len(candidate_pool), self.config.population_size)]
                     for candidate in ordered_candidates:
                         if self._evaluations >= self.config.max_evaluations:
                             break

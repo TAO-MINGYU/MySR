@@ -179,6 +179,7 @@ class FEATEngineConfig:
         "sub",
         "mul",
         "div",
+        "normalized_sub",
     )
     unary_operators: tuple[UnaryOperator, ...] = (
         "square",
@@ -186,6 +187,8 @@ class FEATEngineConfig:
         "sqrt_abs",
         "abs",
         "log_abs",
+        "reciprocal",
+        "exp",
         "sin",
         "cos",
     )

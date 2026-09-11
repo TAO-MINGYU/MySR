@@ -482,6 +482,32 @@ def _sample_expression_batch(
             for index, sequence in enumerate(sequences)]
 
 
+def _rank_replay_indices(
+    costs: np.ndarray | Sequence[float],
+    sequences: Sequence[Sequence[int]],
+) -> list[int]:
+    """Order training expressions by quality with a length-diversity bias."""
+
+    cost_array = np.asarray(costs, dtype=float)
+    sequence_lengths = np.fromiter((len(sequence) for sequence in sequences), dtype=float)
+    if cost_array.size == 0:
+        return []
+    finite_cost = np.isfinite(cost_array)
+    if sequence_lengths.size == 0:
+        sequence_lengths = np.array([], dtype=float)
+    median_length = float(np.median(sequence_lengths)) if sequence_lengths.size else 0.0
+    return sorted(
+        range(len(cost_array)),
+        key=lambda index: (
+            0 if finite_cost[index] else 1,
+            float(cost_array[index]) if finite_cost[index] else float("inf"),
+            abs(sequence_lengths[index] - median_length),
+            sequence_lengths[index],
+            index,
+        ),
+    )
+
+
 class TorchRNNGenerator:
     """Train an LSTM/GRU policy and generate grammar-complete expressions.
 
@@ -734,14 +760,7 @@ class TorchRNNGenerator:
                 round(requested_count * self.config.replay_fraction),
             )
             if replay_count:
-                replay_indices = sorted(
-                    range(len(sequences)),
-                    key=lambda index: (
-                        not np.isfinite(costs[index]),
-                        costs[index] if np.isfinite(costs[index]) else np.inf,
-                        index,
-                    ),
-                )
+                replay_indices = _rank_replay_indices(costs, sequences)
                 replayed: list[list[int]] = []
                 replay_keys: set[tuple[int, ...]] = set()
                 for index in replay_indices:
@@ -759,6 +778,16 @@ class TorchRNNGenerator:
                     if tuple(sequence) not in replay_keys
                 ]
                 generated = generated[:requested_count]
+            if len(generated) < requested_count:
+                for index in _rank_replay_indices(costs, sequences):
+                    if len(generated) >= requested_count:
+                        break
+                    sequence = list(sequences[index])
+                    key = tuple(sequence)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    generated.append(sequence)
             actual_replay_count = min(len(generated), replay_count)
             diagnostics["sampled_count"] = sampled_count
             diagnostics["replay_count"] = actual_replay_count
