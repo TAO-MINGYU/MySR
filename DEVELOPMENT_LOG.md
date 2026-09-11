@@ -139,3 +139,14 @@
 - **Validation**：`python -m compileall` 覆盖了改动文件；`test_juliapkg_config` 在当前
   `env_mysr` 下受 Julia depot 只读约束而不可完成（`read-only file system`）。
 - **Decision**：将本次变更归档为 `MySR 1.1.3`，与 MySRCore 1.1.3 同步发布候选。
+
+## 2026-09-11 - RNN fallback and AFE naming alignment stabilization (commit a5d4c2a)
+
+- **变更类型**：防止 AFE 与 RNN-GPSR 在边界条件下失去输出（空提案）或命名错配。
+- **Confirmed**：
+  - [mysr/rnn_gpsr.py](mysr/rnn_gpsr.py): 当 quality gate 未通过时，`TorchRNNGenerator` 改为退化到训练序列回放；新增回放去重、`fallback_generated_count` 与 `sampling_attempts` 诊断字段。
+  - [mysr/feat_engine.py](mysr/feat_engine.py): 在 `FeatureEngineeringEnsemble` 中按 proposal signature 做重名回放对齐，避免 bundle names/downstream_columns 被原 name 映射误配。
+  - [mysr/test/test_rnn_gpsr_seeding.py](mysr/test/test_rnn_gpsr_seeding.py)：新增 fallback 行为回归测试。
+  - [mysr/test/test_feature_engineering.py](mysr/test/test_feature_engineering.py)：增加 bundle 重名映射与顺序健壮性覆盖。
+- **Verification**：`python -m py_compile mysr/feat_engine.py mysr/rnn_gpsr.py mysr/test/test_feature_engineering.py mysr/test/test_rnn_gpsr_seeding.py` 通过。`pytest` 仍受 `env_mysr` 中 Julia depot 只读导致 `mysr` 包导入错误（`read-only file system`）阻断。
+- **Residual/Unknown**：未跟踪输出目录 `MySR/outputs/` 仍在本地保留；本次提交未清理。
