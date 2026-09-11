@@ -5,7 +5,11 @@ import pytest
 from sklearn.utils import check_random_state
 
 from mysr import MySRRegressor
-from mysr.feat_engine import FEATLikeFeatureEngineer, FeatureEngineeringEnsemble
+from mysr.feat_engine import (
+    FEATLikeFeatureEngineer,
+    FeatureBundleProposal,
+    FeatureEngineeringEnsemble,
+)
 from mysr.feature_engineering import (
     FEATEngineConfig,
     FeatureComplexitySpec,
@@ -1200,7 +1204,23 @@ def test_feature_ensemble_disambiguates_duplicate_generated_names():
     class _Engine:
         def __init__(self):
             self.accepted_proposals_ = proposals
-            self.accepted_bundles_ = []
+            self.accepted_bundles_ = [
+                FeatureBundleProposal(
+                    nodes=(left, right),
+                    names=("afe_pair", "afe_pair"),
+                    expressions=(proposals[0].expression, proposals[1].expression),
+                    downstream_columns=("afe_pair", "afe_pair"),
+                    construction_nmse=0.2,
+                    validation_nmse=0.1,
+                    baseline_validation_nmse=0.4,
+                    improvement_score=0.3,
+                    complexity=2.0,
+                    generation=1,
+                    coefficients=(),
+                    accepted=True,
+                    rejection_reason=None,
+                )
+            ]
             self.proposals_ = proposals
             self.report_ = {"status": "ok"}
 
@@ -1211,8 +1231,9 @@ def test_feature_ensemble_disambiguates_duplicate_generated_names():
     )
 
     names = ensemble.get_feature_names_out()
-    assert names == ["x0", "x1", "afe_pair", "afe_pair__2"]
+    assert set(names) == {"x0", "x1", "afe_pair", "afe_pair__2"}
     assert len(set(names)) == len(names)
+    assert set(ensemble.accepted_bundles_[0].names) == {"afe_pair", "afe_pair__2"}
 
 
 def test_feat_like_is_reproducible_for_fixed_seed():

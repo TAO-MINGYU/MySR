@@ -682,6 +682,14 @@ class TorchRNNGenerator:
                 if epochs_without_improvement >= self.config.patience:
                     break
 
+            if best_state is None:
+                # Keep a deterministic non-empty fallback policy even when
+                # validation quality is too noisy to establish a strict best.
+                best_state = {
+                    name: tensor.detach().cpu().clone()
+                    for name, tensor in model.state_dict().items()
+                }
+
             accepted = bool(
                 best_state is not None
                 and np.isfinite(best_spearman)
@@ -708,8 +716,26 @@ class TorchRNNGenerator:
                 "generated_count": 0,
             }
             self.diagnostics_.append(diagnostics)
+
             if not accepted:
-                return []
+                # Keep search moving even when the validation score is weak.
+                # Fallback to high-ranked training expressions instead of
+                # dropping the RNN seeding channel entirely.
+                fallback_generated: list[list[int]] = []
+                fallback_seen: set[tuple[int, ...]] = set()
+                for index in _rank_replay_indices(costs, sequences):
+                    if len(fallback_generated) >= requested_count:
+                        break
+                    candidate = list(sequences[index])
+                    key = tuple(candidate)
+                    if key in fallback_seen:
+                        continue
+                    fallback_seen.add(key)
+                    fallback_generated.append(candidate)
+                diagnostics["fallback_generated_count"] = len(fallback_generated)
+                diagnostics["generated_count"] = len(fallback_generated)
+                diagnostics["sampling_attempts"] = 0
+                return fallback_generated
 
             model.load_state_dict(best_state)
             model.eval()
@@ -791,6 +817,7 @@ class TorchRNNGenerator:
             actual_replay_count = min(len(generated), replay_count)
             diagnostics["sampled_count"] = sampled_count
             diagnostics["replay_count"] = actual_replay_count
+            diagnostics["fallback_generated_count"] = 0
             diagnostics["generated_count"] = len(generated)
             diagnostics["sampling_attempts"] = attempts
             return generated

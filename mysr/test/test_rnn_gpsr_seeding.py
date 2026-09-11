@@ -176,6 +176,48 @@ def test_torch_rnn_records_backend_feedback_round() -> None:
     assert generator.diagnostics_[-1]["backend_costs_used"] is True
 
 
+def test_torch_rnn_falls_back_to_training_sequences_when_quality_gate_fails() -> None:
+    torch = pytest.importorskip("torch")
+    generator = TorchRNNGenerator(
+        TorchRNNConfig(
+            epochs=1,
+            patience=1,
+            validation_fraction=0.5,
+            min_validation_spearman=0.99,
+        )
+    )
+    sequences = [
+        [2],
+        [2],
+        [3, 2],
+        [3, 2, 2],
+        [2],
+        [3, 2],
+        [3, 2, 1],
+        [3, 1, 2],
+    ]
+    proposals = generator(
+        sequences,
+        [0.2, 1.0, 0.1, 0.4, 0.5, 0.9, 0.3, 0.6],
+        [0, 0, 2],
+        4,
+        5,
+        20260901,
+        "empirical",
+        2,
+        "bootstrap_structural",
+        False,
+    )
+
+    assert proposals
+    assert generator.diagnostics_[-1]["accepted"] is False
+    assert generator.diagnostics_[-1]["fallback_generated_count"] > 0
+    # Fallback returns a deduplicated subset of ranked training sequences.
+    proposal_set = {tuple(item) for item in proposals}
+    source_set = {tuple(item) for item in sequences}
+    assert proposal_set.issubset(source_set)
+
+
 def test_batched_sampler_returns_complete_grammar_trees() -> None:
     torch = pytest.importorskip("torch")
     model, bos_token = _make_policy(

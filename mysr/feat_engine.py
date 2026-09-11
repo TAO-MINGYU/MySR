@@ -1237,8 +1237,13 @@ class FeatureEngineeringEnsemble:
         selected_proposals = [
             by_signature[signature][0] for signature in selected_signatures
         ]
+        selected_signature_to_name: dict[str, str] = {
+            (
+                proposal.node.signature if proposal.node is not None else proposal.name
+            ): proposal.name
+            for proposal in selected_proposals
+        }
         used_names = set(self.variable_names_in_)
-        rename_map: dict[str, str] = {}
         name_counts: dict[str, int] = {}
         unique_proposals: list[FeatureProposal] = []
         for proposal in selected_proposals:
@@ -1250,18 +1255,30 @@ class FeatureEngineeringEnsemble:
                 candidate_name = f"{base_name}__{count}"
             name_counts[base_name] = count
             used_names.add(candidate_name)
+            proposal_signature = (
+                proposal.node.signature if proposal.node is not None else proposal.name
+            )
             if candidate_name != base_name:
-                rename_map[base_name] = candidate_name
                 proposal = replace(proposal, name=candidate_name)
+                selected_signature_to_name[proposal_signature] = candidate_name
+            else:
+                selected_signature_to_name[proposal_signature] = base_name
             unique_proposals.append(proposal)
         self.accepted_proposals_ = unique_proposals
         self.proposals_ = list(self.accepted_proposals_)
+        # Keep bundle-level column names aligned with the name-disambiguation
+        # outcome, especially when two engines generate proposals that start
+        # from the same heuristic base name.
         self.accepted_bundles_ = [
             replace(
                 bundle,
-                names=tuple(rename_map.get(name, name) for name in bundle.names),
+                names=tuple(
+                    selected_signature_to_name.get(node.signature, name)
+                    for node, name in zip(bundle.nodes, bundle.names, strict=False)
+                ),
                 downstream_columns=tuple(
-                    rename_map.get(name, name) for name in bundle.downstream_columns
+                    selected_signature_to_name.get(node.signature, name)
+                    for node, name in zip(bundle.nodes, bundle.downstream_columns, strict=False)
                 ),
             )
             for _, engine in engines
