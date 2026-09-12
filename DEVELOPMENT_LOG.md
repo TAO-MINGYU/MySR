@@ -175,3 +175,11 @@
 - **Verification**：使用 env_mysr、临时 Julia bridge 指向合并后的 MySRCore worktree，量纲/RNN
   聚焦测试 `62 passed`；`compileall` 与 Ruff 检查通过。
 - **Unknown**：未运行大规模搜索或 benchmark；既有线程配置和 sklearn 收敛警告仍存在。
+
+## 2026-09-12 - Three basic test rounds completed
+
+- **Confirmed**：第三轮临时 Julia bridge 明确加载
+  `/home/taomingyu/MySR_Dev/worktrees/crossover-optimization` backend，量纲/RNN
+  聚焦测试 `62 passed`（94.39s）。
+- **Verification**：`python -m compileall -q mysr` 与目标文件 Ruff 均通过；未发现跨仓库接口 BUG。
+- **Unknown**：线程配置与 sklearn 收敛警告仍为既有环境/训练提示，未归因于本次合并。
