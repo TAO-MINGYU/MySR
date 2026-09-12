@@ -5,7 +5,11 @@ import pytest
 from sklearn.utils import check_random_state
 
 from mysr import MySRRegressor
-from mysr.feat_engine import FEATLikeFeatureEngineer, FeatureEngineeringEnsemble
+from mysr.feat_engine import (
+    FEATLikeFeatureEngineer,
+    FeatureBundleProposal,
+    FeatureEngineeringEnsemble,
+)
 from mysr.feature_engineering import (
     FEATEngineConfig,
     FeatureComplexitySpec,
@@ -94,6 +98,15 @@ def test_feature_node_signature_preserves_order_for_directional_composites():
     assert forward.signature != reverse.signature
     assert forward.expression(["a", "b"]) == "((a - b) / (a + b))"
     assert reverse.expression(["a", "b"]) == "((b - a) / (b + a))"
+
+
+def test_surrogate_candidate_name_preserves_operator_tokens():
+    assert SurrogateFeatureEngineer._candidate_name(
+        FeatureNode("exp", (FeatureNode.variable(0),))
+    ) == "afe_exp_0"
+    assert SurrogateFeatureEngineer._candidate_name(
+        FeatureNode("exp_ratio", (FeatureNode.variable(0), FeatureNode.variable(1)))
+    ) == "afe_exp_ratio_0_1"
 
 
 def test_extended_helper_depth_and_hypot_complexity_match_expanded_ast():
@@ -405,6 +418,31 @@ def test_regressor_suggest_and_augment_modes_have_distinct_effects():
     assert augment_result[2][-1] == "afe_sub_0_1"
 
 
+def test_regressor_disabled_feature_engineering_exposes_raw_augmented_names():
+    X = _positive_data(5)
+    y = X[:, 0] - X[:, 1]
+    model = MySRRegressor(auto_feature_engineering=False)
+    model.feature_names_in_ = np.asarray(["a", "b", "c"])
+    model.display_feature_names_in_ = model.feature_names_in_
+    model.nout_ = 1
+
+    result = model._pre_transform_training_data(
+        X,
+        y,
+        None,
+        model.feature_names_in_,
+        None,
+        None,
+        None,
+        check_random_state(5),
+    )
+
+    assert result[0].shape == X.shape
+    np.testing.assert_array_equal(
+        model.augmented_feature_names_, np.asarray(["a", "b", "c"])
+    )
+
+
 def test_constrained_feature_engineering_requires_dimensions():
     X = _positive_data(6)
     y = X[:, 0] - X[:, 1]
@@ -525,7 +563,7 @@ def test_ai_feynman_composition_discovers_square_of_pairwise_reduction():
     )
     assert (
         engineer.report_["algorithm"]
-        == "ai_feynman_inspired_feature_construction_v5"
+        == "ai_feynman_inspired_feature_construction_v6"
     )
     assert engineer.report_["unary_compositions"]
 
@@ -899,6 +937,165 @@ def test_high_dimensional_pair_budget_prioritizes_relevant_columns():
     assert candidates == [("sub", 10, 11)]
 
 
+def test_structural_basis_recovers_radial_and_anti_invariant_coordinates():
+    rng = np.random.RandomState(141)
+    X = rng.uniform(-1.5, 1.5, size=(360, 3))
+    y = (X[:, 0] ** 2 + X[:, 1] ** 2) + 0.5 * (X[:, 0] - X[:, 1])
+    config = SurrogateEngineConfig(
+        surrogate_ensemble_size=1,
+        surrogate_stability_min_fraction=0.5,
+        surrogate_min_r2=0.20,
+        max_iter=500,
+        max_generated_features=20,
+        max_structural_candidates=64,
+        structural_min_score=0.02,
+        enable_structural_basis=True,
+        enable_anti_invariance=True,
+    )
+    engineer = SurrogateFeatureEngineer(config, random_state=141).fit(
+        X, y, variable_names=["x0", "x1", "x2"]
+    )
+
+    assert any(
+        proposal.accepted and proposal.relation_kind == "radial_square"
+        for proposal in engineer.proposals_
+    )
+    assert any(
+        proposal.accepted
+        and proposal.relation_kind == "antisymmetric_difference"
+        and proposal.expression == "(x0 - x1)"
+        for proposal in engineer.proposals_
+    )
+    graph = engineer.get_feature_graph()
+    assert graph["raw_nodes"] == [
+        {"index": 0, "name": "x0"},
+        {"index": 1, "name": "x1"},
+        {"index": 2, "name": "x2"},
+    ]
+    assert any(
+        node["relation_kind"] == "radial_square"
+        for node in graph["derived_nodes"]
+    )
+    assert isinstance(engineer.get_reduction_plan(), list)
+
+
+def test_gradient_probe_detects_difference_coordinate():
+    class LinearDifference:
+        @staticmethod
+        def predict(values):
+            return values[:, 0] - values[:, 1]
+
+    X = np.linspace(-1.0, 1.0, 40).reshape(-1, 1)
+    X = np.column_stack([X[:, 0], 0.3 * X[:, 0]])
+    engineer = SurrogateFeatureEngineer(
+        SurrogateEngineConfig(enable_gradient_probes=True, gradient_min_score=0.8),
+        random_state=0,
+    )
+    evidence, records = engineer._gradient_structure_evidence(
+        LinearDifference(), X, X, np.array([-1.0, -1.0]), np.array([1.0, 1.0])
+    )
+
+    assert evidence[("difference_coordinate", (0, 1))] == pytest.approx(1.0)
+    assert records[0]["accepted_relation"] == "difference_coordinate"
+
+
+def test_flat_surrogate_is_not_gradient_structure_evidence():
+    class ConstantSurrogate:
+        def predict(self, X):
+            return np.ones(len(X))
+
+    X = np.random.RandomState(61).uniform(-1, 1, (40, 2))
+    engineer = SurrogateFeatureEngineer(
+        SurrogateEngineConfig(enable_gradient_probes=True)
+    )
+    evidence, records = engineer._gradient_structure_evidence(
+        ConstantSurrogate(), X, X, X.min(axis=0), X.max(axis=0)
+    )
+    assert not evidence
+    assert records[0]["accepted_relation"] is None
+
+
+def test_structural_radial_coordinate_reaches_outer_composition(monkeypatch):
+    # An exact surrogate isolates candidate routing, not surrogate learning or
+    # a benchmark recovery claim. Test replay uses independently sampled data.
+    class RadialSurrogate:
+        def fit(self, X, y):
+            return self
+
+        def predict(self, X):
+            return np.sin(np.sum(X**2, axis=1))
+
+        def score(self, X, y):
+            return 1 - np.sum((self.predict(X) - y)**2) / np.sum((y - y.mean())**2)
+
+    monkeypatch.setattr(
+        SurrogateFeatureEngineer, "_make_surrogate", lambda self, seed: RadialSurrogate()
+    )
+    X = np.random.RandomState(62).uniform(-2, 2, (400, 2))
+    config = SurrogateEngineConfig(
+        enable_pairwise_symmetry=False,
+        enable_structural_basis=True,
+        enable_recursive_composition=False,
+        enable_separability=False,
+        enable_power_composition=False,
+        candidate_unary_operators=("sin",),
+        surrogate_ensemble_size=1,
+        structural_min_score=0.01,
+        max_composition_depth=3,
+        max_composition_candidates=20,
+        max_generated_features=8,
+    )
+    engineer = SurrogateFeatureEngineer(config, random_state=62).fit(
+        X, np.sin(np.sum(X**2, axis=1))
+    )
+    expected = FeatureNode("sin", (FeatureNode("add", (
+        FeatureNode("square", (FeatureNode.variable(0),)),
+        FeatureNode("square", (FeatureNode.variable(1),)),
+    )),))
+    proposal = next(
+        (item for item in engineer.accepted_proposals_ if item.node == expected), None
+    )
+    assert proposal is not None
+    test_X = np.random.RandomState(63).uniform(-2, 2, (80, 2))
+    np.testing.assert_allclose(proposal.transform(test_X), np.sin(np.sum(test_X**2, axis=1)))
+
+
+def test_structural_sum_evidence_does_not_extrapolate_from_one_pair():
+    X = np.random.RandomState(64).normal(size=(120, 3))
+    engineer = SurrogateFeatureEngineer(SurrogateEngineConfig(
+        enable_structural_basis=True, structural_min_score=0.9,
+    ))
+    engineer.complexity_spec_ = FeatureComplexitySpec.from_user(3)
+    y = X[:, 0] - X[:, 1]
+    proposals = engineer._structural_basis_candidates(
+        X[:60], X, y[:60], X[60:], y[60:], ["x0", "x1", "x2"],
+        {("sum_coordinate", (0, 1)): 1.0},
+    )
+    triple = next(item for item in proposals if item.relation_kind == "symmetric_sum"
+                  and len(item.input_indices) == 3)
+    assert not triple.accepted
+
+
+def test_permutation_basis_archives_alternating_vandermonde():
+    X = np.random.RandomState(65).normal(size=(120, 3))
+    y = (X[:, 0] - X[:, 1]) * (X[:, 0] - X[:, 2]) * (X[:, 1] - X[:, 2])
+    engineer = SurrogateFeatureEngineer(SurrogateEngineConfig(
+        enable_structural_basis=True,
+        enable_permutation_basis=True,
+        structural_min_score=0.0,
+    ))
+    engineer.complexity_spec_ = FeatureComplexitySpec.from_user(3)
+    proposals = engineer._structural_basis_candidates(
+        X[:60], X, y[:60], X[60:], y[60:], ["x0", "x1", "x2"],
+    )
+    vandermonde = next(
+        item for item in proposals if item.relation_kind == "alternating_vandermonde"
+    )
+    assert vandermonde.node is not None
+    assert vandermonde.support_fraction == 1.0
+    assert vandermonde.expression.count("x") == 6
+
+
 def test_parameterized_symmetry_handles_scale_noise_and_irrelevant_columns():
     rng = np.random.RandomState(33)
     X = np.column_stack(
@@ -972,6 +1169,71 @@ def test_feat_like_evolves_replayable_joint_nonlinear_bundle():
     )
     assert limited.accepted_proposals_ == []
     assert limited.accepted_bundles_ == []
+
+
+def test_feature_ensemble_disambiguates_duplicate_generated_names():
+    left = FeatureNode.variable(0)
+    right = FeatureNode.variable(1)
+    proposals = [
+        FeatureProposal(
+            operator="sub",
+            left_index=0,
+            right_index=1,
+            name="afe_pair",
+            expression="(x0 - x1)",
+            invariance_score=1.0,
+            relevance_score=1.0,
+            support_fraction=1.0,
+            accepted=True,
+            node=FeatureNode("sub", (left, right)),
+        ),
+        FeatureProposal(
+            operator="div",
+            left_index=0,
+            right_index=1,
+            name="afe_pair",
+            expression="(x0 / x1)",
+            invariance_score=0.9,
+            relevance_score=0.9,
+            support_fraction=1.0,
+            accepted=True,
+            node=FeatureNode("div", (left, right)),
+        ),
+    ]
+
+    class _Engine:
+        def __init__(self):
+            self.accepted_proposals_ = proposals
+            self.accepted_bundles_ = [
+                FeatureBundleProposal(
+                    nodes=(left, right),
+                    names=("afe_pair", "afe_pair"),
+                    expressions=(proposals[0].expression, proposals[1].expression),
+                    downstream_columns=("afe_pair", "afe_pair"),
+                    construction_nmse=0.2,
+                    validation_nmse=0.1,
+                    baseline_validation_nmse=0.4,
+                    improvement_score=0.3,
+                    complexity=2.0,
+                    generation=1,
+                    coefficients=(),
+                    accepted=True,
+                    rejection_reason=None,
+                )
+            ]
+            self.proposals_ = proposals
+            self.report_ = {"status": "ok"}
+
+    ensemble = FeatureEngineeringEnsemble(
+        [("surrogate", _Engine())],
+        ["x0", "x1"],
+        max_generated_features=2,
+    )
+
+    names = ensemble.get_feature_names_out()
+    assert set(names) == {"x0", "x1", "afe_pair", "afe_pair__2"}
+    assert len(set(names)) == len(names)
+    assert set(ensemble.accepted_bundles_[0].names) == {"afe_pair", "afe_pair__2"}
 
 
 def test_feat_like_is_reproducible_for_fixed_seed():

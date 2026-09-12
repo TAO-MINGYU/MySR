@@ -1,3 +1,2 @@
-[submodule "Benchmark_mysr"]
-	path = Benchmark_mysr
-	url = git@github.com:TAO-MINGYU/Benchmark_mysr.git
+# Benchmark_mysr is maintained as the independent sibling repository
+# /home/taomingyu/MySR_Dev/Benchmark_mysr and is not a MySR submodule.

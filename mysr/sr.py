@@ -737,10 +737,10 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     rnn_gpsr_candidate_count : int
         Number of structural-prior expressions used to fit the recurrent
         generator in the bootstrap round. These are not backend-evaluated
-        individuals. Default is `128`.
+        individuals. Default is `160`.
     rnn_gpsr_proposal_count : int
         Number of expression individuals requested from the recurrent generator
-        per feedback round. Default is `128`.
+        per feedback round. Default is `160`.
     rnn_hidden_size : int
         Hidden-state width of the PyTorch recurrent generator. Default is `32`.
     rnn_cell : {"lstm", "gru"}
@@ -771,11 +771,29 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     rnn_top_fraction : float
         Fraction of best-cost expressions emphasized in the quality-weighted
         autoregressive loss, inspired by risk-seeking DSO training. Default is `0.2`.
+    rnn_rank_loss_weight : float
+        Weight of pairwise quality-ranking loss over the full feedback batch. Default `0.35`.
+    rnn_elite_supervision_weight : float
+        Weight of the normalized elite imitation term (PQT-style priority training).
+        Default is `0.15`.
+    rnn_diversity_weight : float
+        Weight of marginal token-entropy regularization to reduce policy collapse. Default `0.02`.
+    rnn_length_penalty : float
+        Optional normalized sequence-length penalty. Default is `0.0`.
+    rnn_sampling_temperature : float
+        Temperature used when decoding RNN proposals. Default is `1.0`.
+    rnn_sampling_top_k : int
+        Optional top-k token truncation; `0` disables it. Default is `0`.
+    rnn_sampling_top_p : float
+        Nucleus sampling probability. Default is `1.0` (disabled).
+    rnn_replay_fraction : float
+        Fraction of each proposal batch reserved for the best known training
+        sequences (elitist replay). Default is `0.25`.
     rnn_gpsr_cycles : int
         Number of lightweight GP-SR cycles per RNN/GPSR feedback round.
         Default is `4`.
     rnn_gpsr_rounds : int
-        Number of RNN → GP-SR → feedback rounds. Default is `2`.
+        Number of RNN → GP-SR → feedback rounds. Default is `3`.
     rnn_gpsr_feedback_fraction : float
         Fraction of the best lightweight GPSR members appended to the next RNN
         training set after each feedback round. Default is `0.2`.
@@ -1240,8 +1258,8 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         fraction_replaced_guesses: float = 0.001,
         rnn_gpsr_seeding: bool = False,
         rnn_gpsr_seed_fraction: float = 0.5,
-        rnn_gpsr_candidate_count: int = 128,
-        rnn_gpsr_proposal_count: int = 128,
+        rnn_gpsr_candidate_count: int = 160,
+        rnn_gpsr_proposal_count: int = 160,
         rnn_hidden_size: int = 32,
         rnn_cell: Literal["lstm", "gru"] = "lstm",
         rnn_embedding_size: int = 16,
@@ -1254,8 +1272,16 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         rnn_validation_fraction: float = 0.2,
         rnn_min_validation_spearman: float = 0.05,
         rnn_top_fraction: float = 0.2,
+        rnn_rank_loss_weight: float = 0.35,
+        rnn_elite_supervision_weight: float = 0.15,
+        rnn_diversity_weight: float = 0.02,
+        rnn_length_penalty: float = 0.0,
+        rnn_sampling_temperature: float = 1.0,
+        rnn_sampling_top_k: int = 0,
+        rnn_sampling_top_p: float = 1.0,
+        rnn_replay_fraction: float = 0.25,
         rnn_gpsr_cycles: int = 4,
-        rnn_gpsr_rounds: int = 2,
+        rnn_gpsr_rounds: int = 3,
         rnn_gpsr_feedback_fraction: float = 0.2,
         rnn_gpsr_quality_gate: bool = True,
         rnn_gpsr_maxsize: int | None = None,
@@ -1445,6 +1471,14 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         self.rnn_validation_fraction = rnn_validation_fraction
         self.rnn_min_validation_spearman = rnn_min_validation_spearman
         self.rnn_top_fraction = rnn_top_fraction
+        self.rnn_rank_loss_weight = rnn_rank_loss_weight
+        self.rnn_elite_supervision_weight = rnn_elite_supervision_weight
+        self.rnn_diversity_weight = rnn_diversity_weight
+        self.rnn_length_penalty = rnn_length_penalty
+        self.rnn_sampling_temperature = rnn_sampling_temperature
+        self.rnn_sampling_top_k = rnn_sampling_top_k
+        self.rnn_sampling_top_p = rnn_sampling_top_p
+        self.rnn_replay_fraction = rnn_replay_fraction
         self.rnn_gpsr_cycles = rnn_gpsr_cycles
         self.rnn_gpsr_rounds = rnn_gpsr_rounds
         self.rnn_gpsr_feedback_fraction = rnn_gpsr_feedback_fraction
@@ -2170,6 +2204,26 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             raise ValueError("`rnn_min_validation_spearman` must be in [-1, 1]")
         if not 0.0 < self.rnn_top_fraction <= 1.0:
             raise ValueError("`rnn_top_fraction` must be in (0, 1]")
+        if self.rnn_rank_loss_weight < 0.0:
+            raise ValueError("`rnn_rank_loss_weight` must be non-negative")
+        if self.rnn_diversity_weight < 0.0:
+            raise ValueError("`rnn_diversity_weight` must be non-negative")
+        if self.rnn_length_penalty < 0.0:
+            raise ValueError("`rnn_length_penalty` must be non-negative")
+        if self.rnn_sampling_temperature <= 0.0:
+            raise ValueError("`rnn_sampling_temperature` must be positive")
+        if (
+            not isinstance(self.rnn_sampling_top_k, int)
+            or isinstance(self.rnn_sampling_top_k, bool)
+            or self.rnn_sampling_top_k < 0
+        ):
+            raise ValueError("`rnn_sampling_top_k` must be a non-negative integer")
+        if not 0.0 < self.rnn_sampling_top_p <= 1.0:
+            raise ValueError("`rnn_sampling_top_p` must be in (0, 1]")
+        if not 0.0 <= self.rnn_replay_fraction <= 1.0:
+            raise ValueError("`rnn_replay_fraction` must be in [0, 1]")
+        if self.rnn_elite_supervision_weight < 0:
+            raise ValueError("`rnn_elite_supervision_weight` must be non-negative")
         if self.rnn_gpsr_cycles < 0:
             raise ValueError("`rnn_gpsr_cycles` must be non-negative")
         if self.rnn_gpsr_rounds < 1:
@@ -2799,6 +2853,14 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             else:
                 X, y = denoise(X, y, Xresampled=Xresampled, random_state=random_state)
 
+        # Keep the public capability metadata total even when automatic feature
+        # engineering is disabled.  The disabled path has no generated columns,
+        # so its augmented feature set is exactly the post-selection raw names;
+        # leaving this attribute as ``None`` forces downstream benchmark/reporting
+        # code to special-case a successful search.
+        if not self.auto_feature_engineering:
+            self.augmented_feature_names_ = np.asarray(variable_names, dtype=str)
+
         return X, y, variable_names, complexity_of_variables, X_dimensions, y_dimensions
 
     def _run(
@@ -3296,6 +3358,14 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                     validation_fraction=self.rnn_validation_fraction,
                     min_validation_spearman=self.rnn_min_validation_spearman,
                     top_fraction=self.rnn_top_fraction,
+                    rank_loss_weight=self.rnn_rank_loss_weight,
+                    elite_supervision_weight=self.rnn_elite_supervision_weight,
+                    diversity_weight=self.rnn_diversity_weight,
+                    length_penalty=self.rnn_length_penalty,
+                    sampling_temperature=self.rnn_sampling_temperature,
+                    sampling_top_k=self.rnn_sampling_top_k,
+                    sampling_top_p=self.rnn_sampling_top_p,
+                    replay_fraction=self.rnn_replay_fraction,
                 )
             )
             julia_rnn_generator = make_julia_rnn_generator(

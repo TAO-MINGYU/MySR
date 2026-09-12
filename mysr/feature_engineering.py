@@ -98,6 +98,23 @@ class SurrogateEngineConfig:
     enable_separability: bool = True
     enable_parameterized_symmetry: bool = True
     enable_power_composition: bool = True
+    # Opt-in for compatibility: existing AFE profiles retain their candidate
+    # counts until the benchmark profile explicitly requests the expanded
+    # structural archive.
+    enable_structural_basis: bool = False
+    enable_anti_invariance: bool = False
+    # Additional AFE evidence/candidate families.  They are opt-in so legacy
+    # profiles keep their exact candidate budget and feature names.
+    enable_gradient_probes: bool = False
+    enable_structural_unary_basis: bool = False
+    enable_elementary_symmetric_basis: bool = False
+    enable_dimensionless_basis: bool = False
+    enable_permutation_basis: bool = False
+    gradient_min_score: float = 0.85
+    gradient_step_fraction: float = 1.0e-3
+    max_gradient_pairs: int = 128
+    max_structural_candidates: int = 128
+    structural_min_score: float = 0.10
     power_exponents: tuple[float, ...] = (0.5, 1.5, 2.5, -0.5)
     surrogate_min_r2: float = 0.80
     surrogate_ensemble_size: int = 3
@@ -162,6 +179,7 @@ class FEATEngineConfig:
         "sub",
         "mul",
         "div",
+        "normalized_sub",
     )
     unary_operators: tuple[UnaryOperator, ...] = (
         "square",
@@ -169,6 +187,8 @@ class FEATEngineConfig:
         "sqrt_abs",
         "abs",
         "log_abs",
+        "reciprocal",
+        "exp",
         "sin",
         "cos",
     )
@@ -840,6 +860,8 @@ class FeatureProposal:
         "pairwise_symmetry",
         "unary_composition",
         "recursive_composition",
+        "structural_invariant",
+        "structural_anti_invariant",
         "feat_evolved",
     ] = "pairwise_symmetry"
     depth: int = 1
@@ -849,6 +871,8 @@ class FeatureProposal:
     construction_score: float = 0.0
     stability_fraction: float = 1.0
     parameter: float | None = None
+    relation_kind: str | None = None
+    structural_score: float = 0.0
     node: FeatureNode | None = field(default=None, repr=False, compare=False)
 
     @property
@@ -889,6 +913,8 @@ class FeatureProposal:
             "construction_score": self.construction_score,
             "stability_fraction": self.stability_fraction,
             "parameter": self.parameter,
+            "relation_kind": self.relation_kind,
+            "structural_score": self.structural_score,
             "support_fraction": self.support_fraction,
             "accepted": self.accepted,
             "rejection_reason": self.rejection_reason,
@@ -1003,6 +1029,8 @@ class SurrogateFeatureEngineer:
             "construction_fraction",
             "validation_fraction",
             "parameter_search_min_score",
+            "structural_min_score",
+            "gradient_min_score",
         ):
             if not 0.0 <= float(getattr(config, field_name)) <= 1.0:
                 raise ValueError(f"{field_name} must be between 0 and 1")
@@ -1018,6 +1046,8 @@ class SurrogateFeatureEngineer:
             "max_composition_depth",
             "composition_beam_width",
             "max_generated_features",
+            "max_structural_candidates",
+            "max_gradient_pairs",
             "max_iter",
         )
         for field_name in integer_fields:
@@ -1038,6 +1068,8 @@ class SurrogateFeatureEngineer:
             raise TypeError("hidden_layer_sizes must be a non-empty sequence of positive integers")
         if config.exp_input_limit <= 0:
             raise ValueError("exp_input_limit must be positive")
+        if config.gradient_step_fraction <= 0:
+            raise ValueError("gradient_step_fraction must be positive")
         if config.complexity_penalty < 0:
             raise ValueError("complexity_penalty must be non-negative")
         if config.construction_fraction + config.validation_fraction >= 1.0:
@@ -1279,7 +1311,10 @@ class SurrogateFeatureEngineer:
 
     @staticmethod
     def _candidate_name(node: FeatureNode) -> str:
-        cleaned = node.signature.replace("x", "")
+        # Remove only canonical variable tokens (x0, x1, ...).  A global
+        # ``replace("x", "")`` corrupts operator names such as ``exp`` and
+        # ``exp_ratio`` (for example, ``exp(x0)`` became ``ep_0``).
+        cleaned = re.sub(r"x(\d+)", r"\1", node.signature)
         return "afe_" + re.sub(r"[^0-9A-Za-z_]+", "_", cleaned).strip("_")
 
     @staticmethod
@@ -1472,6 +1507,328 @@ class SurrogateFeatureEngineer:
             construction_score=construction_score,
             node=node,
         )
+
+    @staticmethod
+    def _fold_nodes(
+        operator: Literal["add", "mul"], nodes: Sequence[FeatureNode]
+    ) -> FeatureNode:
+        """Build a deterministic left-associated n-ary reduction."""
+
+        if len(nodes) < 2:
+            raise ValueError("at least two nodes are required for a structural fold")
+        result = nodes[0]
+        for node in nodes[1:]:
+            result = SurrogateFeatureEngineer._binary_node(operator, result, node)
+        return result
+
+    def _gradient_structure_evidence(
+        self,
+        model: Pipeline,
+        construction_X: NDArray[np.float64],
+        validation_X: NDArray[np.float64],
+        lower: NDArray[np.float64],
+        upper: NDArray[np.float64],
+    ) -> tuple[dict[tuple[str, tuple[int, ...]], float], list[dict[str, Any]]]:
+        """Estimate pairwise sum/difference structure with finite differences.
+
+        For a target that depends on ``x_i-x_j``, the partial derivatives are
+        approximately opposite; for a target that depends on ``x_i+x_j`` they
+        are approximately equal.  This inexpensive probe supplies structural
+        evidence even when the raw-coordinate surrogate has not yet learned a
+        useful incremental feature gain.  The probe is diagnostic and bounded
+        by ``max_gradient_pairs``.
+        """
+
+        if not self.config.enable_gradient_probes:
+            return {}, []
+
+        def gradients(X: NDArray[np.float64]) -> NDArray[np.float64]:
+            X = np.asarray(X, dtype=float)
+            result = np.zeros_like(X, dtype=float)
+            span = np.maximum(upper - lower, 1.0)
+            for index in range(X.shape[1]):
+                step = max(1.0e-6, self.config.gradient_step_fraction * span[index])
+                plus = np.array(X, copy=True)
+                minus = np.array(X, copy=True)
+                plus[:, index] = np.minimum(upper[index], plus[:, index] + step)
+                minus[:, index] = np.maximum(lower[index], minus[:, index] - step)
+                denominator = plus[:, index] - minus[:, index]
+                valid = np.abs(denominator) > 1.0e-12
+                if np.any(valid):
+                    delta = np.asarray(model.predict(plus[valid]), dtype=float) - np.asarray(
+                        model.predict(minus[valid]), dtype=float
+                    )
+                    result[valid, index] = delta / denominator[valid]
+            return result
+
+        construction_grad = gradients(construction_X)
+        validation_grad = gradients(validation_X)
+        evidence: dict[tuple[str, tuple[int, ...]], float] = {}
+        records: list[dict[str, Any]] = []
+        for pair_count, (left, right) in enumerate(
+            combinations(range(construction_X.shape[1]), 2)
+        ):
+            if pair_count >= self.config.max_gradient_pairs:
+                break
+            scores: dict[str, float] = {}
+            for relation, construction_values, validation_values in (
+                ("sum_coordinate", construction_grad[:, left] - construction_grad[:, right],
+                 validation_grad[:, left] - validation_grad[:, right]),
+                ("difference_coordinate", construction_grad[:, left] + construction_grad[:, right],
+                 validation_grad[:, left] + validation_grad[:, right]),
+            ):
+                scale = max(
+                    float(np.mean(np.abs(construction_grad[:, left]))
+                          + np.mean(np.abs(construction_grad[:, right]))),
+                    1.0e-8,
+                )
+                validation_scale = max(
+                    float(np.mean(np.abs(validation_grad[:, left]))
+                          + np.mean(np.abs(validation_grad[:, right]))),
+                    1.0e-8,
+                )
+                error = float(np.mean(np.abs(construction_values)) / scale)
+                validation_error = float(np.mean(np.abs(validation_values)) / validation_scale)
+                activity = max(
+                    float(np.mean(np.abs(construction_grad[:, left]))),
+                    float(np.mean(np.abs(construction_grad[:, right]))),
+                    float(np.mean(np.abs(validation_grad[:, left]))),
+                    float(np.mean(np.abs(validation_grad[:, right]))),
+                )
+                score = (
+                    0.0
+                    if activity < 1.0e-8
+                    else float(np.clip(1.0 - max(error, validation_error), 0.0, 1.0))
+                )
+                scores[relation] = score
+                if score >= self.config.gradient_min_score:
+                    evidence[(relation, (left, right))] = score
+            records.append(
+                {
+                    "indices": (left, right),
+                    "sum_coordinate_score": scores["sum_coordinate"],
+                    "difference_coordinate_score": scores["difference_coordinate"],
+                    "accepted_relation": max(scores, key=scores.get)
+                    if max(scores.values()) >= self.config.gradient_min_score
+                    else None,
+                }
+            )
+        return evidence, records
+
+    def _structural_basis_candidates(
+        self,
+        construction_X: NDArray[np.float64],
+        domain_X: NDArray[np.float64],
+        construction_y: NDArray[np.float64],
+        validation_X: NDArray[np.float64],
+        validation_y: NDArray[np.float64],
+        names: Sequence[str],
+        gradient_evidence: Mapping[tuple[str, tuple[int, ...]], float] | None = None,
+    ) -> list[FeatureProposal]:
+        """Generate low-arity invariant and anti-invariant coordinates.
+
+        These are deliberately deterministic structural hypotheses.  They are
+        scored against the target for ranking, but acceptance does not require
+        an incremental gain over raw variables: recursive AFE can make an
+        intermediate useful only after fitting an outer function.
+        """
+
+        if not self.config.enable_structural_basis:
+            return []
+        n_features = construction_X.shape[1]
+        max_arity = min(max(2, self.config.max_subset_size), n_features)
+        candidates: list[tuple[FeatureNode, str, str, float]] = []
+        gradient_evidence = gradient_evidence or {}
+        if self.config.enable_structural_unary_basis:
+            for index in range(n_features):
+                variable = FeatureNode.variable(index)
+                for operator in self.config.candidate_unary_operators:
+                    relation_kind = {
+                        "square": "polynomial_square",
+                        "cube": "polynomial_cube",
+                    }.get(operator, f"output_transform_{operator}")
+                    candidates.append(
+                        (FeatureNode(operator, (variable,)), relation_kind, "structural_invariant", 0.0)
+                    )
+        for arity in range(2, max_arity + 1):
+            for indices in combinations(range(n_features), arity):
+                variables = [FeatureNode.variable(index) for index in indices]
+                # Symmetric sum and radial square are the two most useful
+                # bases for permutation/exchange invariant functions.
+                candidates.append(
+                    (
+                        self._fold_nodes("add", variables),
+                        "symmetric_sum",
+                        "structural_invariant",
+                        gradient_evidence.get(("sum_coordinate", tuple(indices)), 0.0)
+                        if arity == 2
+                        else 0.0,
+                    )
+                )
+                squares = [FeatureNode("square", (variable,)) for variable in variables]
+                candidates.append(
+                    (
+                        self._fold_nodes("add", squares),
+                        "radial_square",
+                        "structural_invariant",
+                        0.0,
+                    )
+                )
+                if arity == 2:
+                    candidates.append(
+                        (
+                            FeatureNode("mul", tuple(variables)),
+                            "symmetric_product",
+                            "structural_invariant",
+                            0.0,
+                        )
+                    )
+                if self.config.enable_elementary_symmetric_basis and arity >= 3:
+                    pair_products = [
+                        FeatureNode("mul", (variables[left], variables[right]))
+                        for left, right in combinations(range(arity), 2)
+                    ]
+                    candidates.append(
+                        (
+                            self._fold_nodes("add", pair_products),
+                            "elementary_symmetric_e2",
+                            "structural_invariant",
+                            0.0,
+                        )
+                    )
+                if self.config.enable_permutation_basis and arity == 3:
+                    # The Vandermonde factor changes sign under every odd
+                    # permutation and is a compact basis for alternating
+                    # three-variable targets.  It is generated only for
+                    # triples to keep the structural archive bounded.
+                    differences = [
+                        FeatureNode(
+                            "sub", (variables[left], variables[right])
+                        )
+                        for left, right in ((0, 1), (0, 2), (1, 2))
+                    ]
+                    candidates.append(
+                        (
+                            self._fold_nodes("mul", differences),
+                            "alternating_vandermonde",
+                            "structural_anti_invariant",
+                            0.0,
+                        )
+                    )
+                    candidates.append(
+                        (
+                            self._fold_nodes("mul", variables),
+                            "elementary_symmetric_product",
+                            "structural_invariant",
+                            0.0,
+                        )
+                    )
+                if self.config.enable_dimensionless_basis and arity == 2:
+                    candidates.append(
+                        (
+                            FeatureNode("div", tuple(variables)),
+                            "dimensionless_ratio",
+                            "structural_invariant",
+                            0.0,
+                        )
+                    )
+        if self.config.enable_anti_invariance:
+            for left_index, right_index in combinations(range(n_features), 2):
+                candidates.append(
+                    (
+                        FeatureNode(
+                            "sub",
+                            (
+                                FeatureNode.variable(left_index),
+                                FeatureNode.variable(right_index),
+                            ),
+                        ),
+                        "antisymmetric_difference",
+                        "structural_anti_invariant",
+                        gradient_evidence.get(
+                            ("difference_coordinate", (left_index, right_index)), 0.0
+                        ),
+                    )
+                )
+
+        proposals: list[FeatureProposal] = []
+        seen: set[str] = set()
+        for node, relation_kind, feature_kind, gradient_score in candidates:
+            if len(proposals) >= self.config.max_structural_candidates:
+                break
+            if node.signature in seen:
+                continue
+            seen.add(node.signature)
+            construction_values, construction_valid = self._node_support(
+                node, construction_X
+            )
+            validation_values, validation_valid = self._node_support(node, validation_X)
+            _, domain_valid = self._node_support(node, domain_X)
+            support = float(
+                min(
+                    np.mean(construction_valid),
+                    np.mean(validation_valid),
+                    np.mean(domain_valid),
+                )
+            )
+            construction_score = (
+                self._association_score(
+                    construction_values[construction_valid],
+                    construction_y[construction_valid],
+                )
+                if np.any(construction_valid)
+                else 0.0
+            )
+            validation_score = (
+                self._association_score(
+                    validation_values[validation_valid], validation_y[validation_valid]
+                )
+                if np.any(validation_valid)
+                else 0.0
+            )
+            structural_score = float(
+                max(min(construction_score, validation_score), gradient_score)
+            )
+            dimension_valid, dimension_reason = self._dimension_check(node)
+            accepted = (
+                support == 1.0
+                and dimension_valid
+                and structural_score >= self.config.structural_min_score
+            )
+            reason = None
+            if not accepted:
+                if not dimension_valid:
+                    reason = dimension_reason or "dimension_constraint"
+                elif support < 1.0:
+                    reason = "unsafe_structural_domain"
+                else:
+                    reason = "weak_structural_evidence"
+            indices = node.input_indices
+            proposals.append(
+                FeatureProposal(
+                    operator=node.operator,
+                    left_index=indices[0],
+                    right_index=indices[1] if len(indices) > 1 else -1,
+                    name=self._candidate_name(node),
+                    expression=node.expression(names),
+                    invariance_score=structural_score,
+                    relevance_score=structural_score,
+                    support_fraction=support,
+                    accepted=accepted,
+                    rejection_reason=reason,
+                    feature_kind=cast(Any, feature_kind),
+                    depth=node.depth,
+                    complexity=self._node_complexity(node),
+                    validation_score=validation_score,
+                    improvement_score=0.0,
+                    construction_score=construction_score,
+                    stability_fraction=1.0 if accepted else 0.0,
+                    relation_kind=relation_kind,
+                    structural_score=structural_score,
+                    node=node,
+                )
+            )
+        return proposals
 
     def _composition_candidates(
         self,
@@ -2203,6 +2560,18 @@ class SurrogateFeatureEngineer:
                 + 0.25 * proposal.relevance_score
                 + 0.20 * proposal.stability_fraction
             )
+        elif proposal.feature_kind in {
+            "structural_invariant",
+            "structural_anti_invariant",
+        }:
+            # Structural evidence is deliberately independent of incremental
+            # surrogate gain.  An intermediate such as r² may only become
+            # useful after an outer exp/polynomial is fitted.
+            evidence = (
+                0.55 * proposal.structural_score
+                + 0.25 * proposal.validation_score
+                + 0.20 * proposal.support_fraction
+            )
         else:
             evidence = 0.7 * proposal.construction_score + 0.3 * max(
                 proposal.improvement_score, 0.0
@@ -2227,6 +2596,8 @@ class SurrogateFeatureEngineer:
             self.proposals_: list[FeatureProposal] = []
             self.accepted_proposals_: list[FeatureProposal] = []
             self.decomposition_proposals_: list[DecompositionProposal] = []
+            self.reduction_plan_: list[dict[str, Any]] = []
+            self.feature_graph_ = {"raw_nodes": [], "derived_nodes": []}
             self.report_ = {"status": "disabled", "candidates": []}
             return self
         values = self._as_float_matrix(X)
@@ -2292,6 +2663,14 @@ class SurrogateFeatureEngineer:
             self.proposals_ = []
             self.accepted_proposals_ = []
             self.decomposition_proposals_ = []
+            self.reduction_plan_ = []
+            self.feature_graph_ = {
+                "raw_nodes": [
+                    {"index": index, "name": names[index]}
+                    for index in range(values.shape[1])
+                ],
+                "derived_nodes": [],
+            }
             self.report_ = {
                 "status": "surrogate_quality_insufficient",
                 "surrogate_r2": baseline_r2,
@@ -2328,6 +2707,9 @@ class SurrogateFeatureEngineer:
         relevance = raw_importance / max(float(np.max(raw_importance)), 1e-12)
         normalized_importance = raw_importance / max(float(np.sum(raw_importance)), 1e-12)
         lower, upper = self._support_bounds(values)
+        gradient_evidence, gradient_relations = self._gradient_structure_evidence(
+            models[0], values[construction], values[validation], lower, upper
+        )
         pairwise = self._pairwise_candidates(
             models,
             values[construction],
@@ -2341,6 +2723,18 @@ class SurrogateFeatureEngineer:
             lower,
             upper,
         )
+        structural = self._structural_basis_candidates(
+            values[construction],
+            values,
+            target[construction],
+            values[validation],
+            target[validation],
+            names,
+            gradient_evidence,
+        )
+        # Structural reductions are generated before recursive composition so
+        # accepted intermediates (e.g. r²) can become inputs to an outer
+        # transform (e.g. sin(r²)).
         compositions = self._composition_candidates(
             values[construction],
             values,
@@ -2348,12 +2742,12 @@ class SurrogateFeatureEngineer:
             values[validation],
             target[validation],
             names,
-            pairwise,
+            [*pairwise, *structural],
         )
         decompositions = self._separability_candidates(
             models[0], values[construction], normalized_importance, seed_rng
         )
-        proposals = pairwise + compositions
+        proposals = pairwise + compositions + structural
         selected = sorted(
             (proposal for proposal in proposals if proposal.accepted),
             key=self._selection_score,
@@ -2379,10 +2773,54 @@ class SurrogateFeatureEngineer:
             proposal for proposal in self.proposals_ if proposal.accepted
         ]
         self.decomposition_proposals_ = decompositions
+        self.reduction_plan_ = [
+            {
+                "signature": proposal.node.signature if proposal.node else proposal.name,
+                "name": proposal.name,
+                "expression": proposal.expression,
+                "relation_kind": proposal.relation_kind,
+                "input_indices": proposal.input_indices,
+                "depth": proposal.depth,
+                "complexity": proposal.complexity,
+            }
+            for proposal in self.accepted_proposals_
+        ]
+        # Keep a serializable structural graph alongside the replayable column
+        # list.  Downstream recursive planners can consume this without
+        # re-running the surrogate, while older callers continue to use the
+        # accepted proposal API unchanged.
+        self.feature_graph_ = {
+            "raw_nodes": [
+                {"index": index, "name": names[index]}
+                for index in range(values.shape[1])
+            ],
+            "derived_nodes": [
+                {
+                    "name": proposal.name,
+                    "expression": proposal.expression,
+                    "signature": proposal.node.signature if proposal.node else proposal.name,
+                    "relation_kind": proposal.relation_kind,
+                    "feature_kind": proposal.feature_kind,
+                    "input_indices": proposal.input_indices,
+                    "accepted": proposal.accepted,
+                    "structural_score": proposal.structural_score,
+                    "support_fraction": proposal.support_fraction,
+                    "complexity": proposal.complexity,
+                    "provenance": {
+                        "engine": "surrogate_engine",
+                        "seed": seed,
+                        "construction_score": proposal.construction_score,
+                        "validation_score": proposal.validation_score,
+                        "rejection_reason": proposal.rejection_reason,
+                    },
+                }
+                for proposal in self.proposals_
+            ],
+        }
         records = [proposal.to_record() for proposal in self.proposals_]
         self.report_ = {
             "status": "ok",
-            "algorithm": "ai_feynman_inspired_feature_construction_v5",
+            "algorithm": "ai_feynman_inspired_feature_construction_v6",
             "composition_operators": list(self._composition_operator_pool()),
             "power_exponents": [float(value) for value in self.config.power_exponents],
             "surrogate_r2": baseline_r2,
@@ -2399,6 +2837,7 @@ class SurrogateFeatureEngineer:
             },
             "candidate_count": len(self.proposals_),
             "accepted_count": len(self.accepted_proposals_),
+            "feature_graph": self.feature_graph_,
             "candidates": records,
             "pairwise_symmetries": [
                 record for record in records if record["feature_kind"] == "pairwise_symmetry"
@@ -2415,6 +2854,14 @@ class SurrogateFeatureEngineer:
                 for record in records
                 if record["feature_kind"] == "recursive_composition"
             ],
+            "structural_candidates": [
+                record
+                for record in records
+                if record["feature_kind"]
+                in {"structural_invariant", "structural_anti_invariant"}
+            ],
+            "gradient_structure": gradient_relations,
+            "gradient_probe_enabled": self.config.enable_gradient_probes,
             "composition_search": self.composition_search_layers_,
             "separability": [proposal.to_record() for proposal in decompositions],
             "accepted_decomposition_count": sum(
@@ -2429,6 +2876,7 @@ class SurrogateFeatureEngineer:
                 }
                 for proposal in self.accepted_proposals_
             ],
+            "reduction_plan": self.reduction_plan_,
             "limitations": [
                 "separability_is_diagnostic_only",
                 "no_recursive_mysrcore_invocation",
@@ -2463,3 +2911,20 @@ class SurrogateFeatureEngineer:
         return list(self.variable_names_in_) + [
             proposal.name for proposal in self.accepted_proposals_
         ]
+
+    def get_feature_graph(self) -> dict[str, Any]:
+        """Return the serializable raw/derived feature graph diagnostics."""
+
+        if not hasattr(self, "feature_graph_"):
+            raise RuntimeError("SurrogateFeatureEngineer must be fitted first")
+        return {
+            "raw_nodes": list(self.feature_graph_["raw_nodes"]),
+            "derived_nodes": list(self.feature_graph_["derived_nodes"]),
+        }
+
+    def get_reduction_plan(self) -> list[dict[str, Any]]:
+        """Return accepted AFE reductions in deterministic execution order."""
+
+        if not hasattr(self, "reduction_plan_"):
+            raise RuntimeError("SurrogateFeatureEngineer must be fitted first")
+        return [dict(item) for item in self.reduction_plan_]

@@ -120,6 +120,14 @@
   - rnn_validation_fraction
   - rnn_min_validation_spearman
   - rnn_top_fraction
+  - rnn_rank_loss_weight
+  - rnn_elite_supervision_weight
+  - rnn_diversity_weight
+  - rnn_length_penalty
+  - rnn_sampling_temperature
+  - rnn_sampling_top_k
+  - rnn_sampling_top_p
+  - rnn_replay_fraction
 - Monitoring:
   - verbosity
   - update_verbosity
