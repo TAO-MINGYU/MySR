@@ -13,7 +13,6 @@ import numpy as np
 import pandas as pd
 from juliacall import JuliaError  # type: ignore
 
-from .julia_helpers import jl_array
 from .julia_import import AnyValue, SymbolicRegression, jl
 
 _TYPE_MODULE_INSTALLED = "_MYSR_TYPE_SPEC_INSTALLED"
@@ -283,7 +282,7 @@ def _runtime_install_source(
             if needs_install
                 Core.eval(parent, Expr(:module, true, module_name, Expr(:block)))
                 module_ = Base.invokelatest(getproperty, parent, module_name)
-                Core.eval(module_, :(using SymbolicRegression))
+                Core.eval(module_, :(using MySRCore.SymbolicRegression))
                 for name in getproperty(parent, :_MYSR_PARENT_BINDING_NAMES)
                     isdefined(module_, name) && continue
                     Core.eval(
@@ -448,13 +447,13 @@ def compile_type_spec_runtime_for_model(
 
 
 _TYPE_SPEC_MODULE = _block(r"""
-    import SymbolicRegression: init_value, mutate_value, sample_value
-    import SymbolicRegression.ConstantOptimizationModule: can_optimize
-    import SymbolicRegression.InterfaceDynamicExpressionsModule: string_constant
-    import SymbolicRegression.InterfaceDynamicExpressionsModule.DE:
+    import MySRCore.SymbolicRegression: init_value, mutate_value, sample_value
+    import MySRCore.SymbolicRegression.ConstantOptimizationModule: can_optimize
+    import MySRCore.SymbolicRegression.InterfaceDynamicExpressionsModule: string_constant
+    import MySRCore.SymbolicRegression.InterfaceDynamicExpressionsModule.DE:
         count_scalar_constants, get_number_type, is_valid,
         pack_scalar_constants!, unpack_scalar_constants
-    import SymbolicRegression.InterfaceDynamicExpressionsModule.DE.StringsModule:
+    import MySRCore.SymbolicRegression.InterfaceDynamicExpressionsModule.DE.StringsModule:
         needs_brackets
 
     const _config = __TYPE_SPEC_CONFIG__
@@ -691,7 +690,7 @@ def compile_type_spec(spec: TypeSpec) -> _TypeSpecDefinition:
     source = _block(f"""
         module {module_name}
         using Random
-        using SymbolicRegression
+        using MySRCore.SymbolicRegression
         using PythonCall
 
         {body}

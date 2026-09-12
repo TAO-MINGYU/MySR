@@ -150,3 +150,19 @@
   - [mysr/test/test_feature_engineering.py](mysr/test/test_feature_engineering.py)：增加 bundle 重名映射与顺序健壮性覆盖。
 - **Verification**：`python -m py_compile mysr/feat_engine.py mysr/rnn_gpsr.py mysr/test/test_feature_engineering.py mysr/test/test_rnn_gpsr_seeding.py` 通过。`pytest` 仍受 `env_mysr` 中 Julia depot 只读导致 `mysr` 包导入错误（`read-only file system`）阻断。
 - **Residual/Unknown**：未跟踪输出目录 `MySR/outputs/` 仍在本地保留；本次提交未清理。
+
+## 2026-09-12 - MySR 前端 AFE 质量审查与修复
+
+- **Confirmed**：前端审查发现两个问题：`FeatureEngineeringEnsemble` 对 bundle 中未登记的原始/占位 node signature 直接查 proposal 表，重复名称场景触发 `KeyError`；FEAT-like 初始化预算会在深度组合 beam 前耗尽，导致配置注释承诺的组合候选无法进入搜索。
+- **Decision**：bundle 排序只使用已登记 proposal signature，并为 bundle 使用独立的 improvement/validation/complexity rank；名称无法唯一映射时安全跳过 bundle 记录。FEAT-like seed 阶段优先保留变量/一元节点和受控深度组合，并为 residual beam 预留 evaluation budget。
+- **修改路径**：`mysr/feat_engine.py`；提交 `9d0cf13`，修复前备份 `backup/pre-mysr-feature-ensemble-fix-20260912`。
+- **Verification**：FEAT 完整测试 `68 passed`；量纲/RNN bridge `62 passed`；release JuliaPkg 配置测试 `2 passed`；`ruff check mysr/feat_engine.py`、`py_compile` 和 `git diff --check` 通过。
+- **Residual/Unknown**：全仓库 Ruff 仍有历史遗留的 146 条风格/类型提示，本次未批量修改；未进行大规模 benchmark。
+
+## 2026-09-12 - TypeSpec backend namespace and nonnumeric compatibility audit
+
+- **Confirmed**：本地 `MySRCore` 公开边界是 `MySRCore.SymbolicRegression`，而 TypeSpec 动态生成代码仍硬编码顶层 `SymbolicRegression`；这会使本地 backend 的 TypeSpec 安装失败。
+- **Decision**：`mysr/type_specs.py` 的生成模块、runtime 子模块和内部导入统一使用 `MySRCore.SymbolicRegression`；提交 `e2eaeb2`，备份分支 `backup/pre-type-spec-namespace-fix-20260912`。
+- **Confirmed**：非数值 TypeSpec 在半理论包装路径中会触发 backend `one(::Type{T})`；已在 MySRCore 隔离分支加入单位元能力检查，并修正 mutation/crossover 的 eager fallback。
+- **Verification**：该修改前端 TypeSpec 单用例通过；MySRCore `Pkg.test()` 全部通过。TypeSpec 全量在前 41 个测试通过后暴露另一个既有 TemplateExpression/custom combiner 特征映射越界问题，尚未修复。
+- **Residual/Unknown**：TemplateExpression 自定义 combiner 的多特征随机树约束仍需单独设计和回归；未进行大规模性能 benchmark。
