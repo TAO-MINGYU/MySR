@@ -510,11 +510,24 @@ class FEATLikeFeatureEngineer:
             self.config.unary_operators,
             key=lambda operator: unary_priority.get(operator, 99),
         )
+        binary_priority = {
+            "sub": 0,
+            "normalized_sub": 1,
+            "add": 2,
+            "mul": 3,
+            "div": 4,
+        }
         pair_nodes = [
             node
             for node in candidates
             if node.operator in self.config.binary_operators and node.depth == 1
         ]
+        pair_nodes.sort(
+            key=lambda node: (
+                binary_priority.get(node.operator, 99),
+                node.signature,
+            )
+        )
         for pair_node in pair_nodes:
             for unary_operator in composition_unary_operators:
                 candidates.append(FeatureNode(unary_operator, (pair_node,)))
@@ -531,6 +544,19 @@ class FEATLikeFeatureEngineer:
                     candidates.append(
                         FeatureNode(binary_operator, (left_node, right_node))
                     )
+        atomic_candidates = [
+            node
+            for node in candidates
+            if node.depth <= 1
+            and node.operator not in self.config.binary_operators
+        ]
+        composition_candidates = [node for node in candidates if node.depth > 1]
+        binary_candidates = [
+            node
+            for node in candidates
+            if node.depth == 1 and node.operator in self.config.binary_operators
+        ]
+        candidates = atomic_candidates + composition_candidates + binary_candidates
         attempts = 0
         while len(candidates) < self.config.max_seed_nodes * 2 and attempts < 500:
             candidates.append(self._random_node(rng, self.config.max_depth))
@@ -789,10 +815,19 @@ class FEATLikeFeatureEngineer:
         self._evaluation_cache: dict[tuple[str, ...], _BundleIndividual] = {}
         self._evaluations = 0
         node_library = self._make_seed_nodes(values, rng)
+        beam_reserve = (
+            min(self.config.max_evaluations // 3, self.config.population_size * 3)
+            if self.config.max_bundle_size >= 3
+            else 0
+        )
+        initial_population_budget = max(
+            self.config.population_size,
+            self.config.max_evaluations - beam_reserve,
+        )
         singleton_evaluations: list[_BundleIndividual] = []
         singleton_budget = min(
             len(node_library),
-            max(self.config.population_size, self.config.max_evaluations // 2),
+            max(self.config.population_size, initial_population_budget // 2),
         )
         for node in node_library[:singleton_budget]:
             if self._evaluations >= self.config.max_evaluations:
@@ -845,13 +880,13 @@ class FEATLikeFeatureEngineer:
                     signature = tuple(node.signature for node in pair)
                     if len(pair) != 2 or signature in seeded_pairs:
                         continue
-                    if self._evaluations >= self.config.max_evaluations:
+                    if self._evaluations >= initial_population_budget:
                         break
                     seeded_pairs.add(signature)
                     individual = self._evaluate_nodes(pair, generation=0)
                     if np.isfinite(individual.construction_nmse):
                         initial_population.append(individual)
-                if self._evaluations >= self.config.max_evaluations:
+                if self._evaluations >= initial_population_budget:
                     break
 
         # Grow a small deterministic beam by adding residual-complementary
@@ -898,7 +933,7 @@ class FEATLikeFeatureEngineer:
         attempts = 0
         while (
             len(initial_population) < self.config.population_size * 3
-            and self._evaluations < self.config.max_evaluations
+            and self._evaluations < initial_population_budget
             and attempts < self.config.population_size * 20
         ):
             size = int(
@@ -1195,11 +1230,16 @@ class FeatureEngineeringEnsemble:
                 signatures = tuple(node.signature for node in bundle.nodes)
                 if not signatures:
                     continue
-                bundled_signatures.update(signatures)
+                known_signatures = tuple(
+                    signature for signature in signatures if signature in by_signature
+                )
+                if not known_signatures:
+                    continue
+                bundled_signatures.update(known_signatures)
                 proposal_groups.append(
                     (
-                        signatures,
-                        max(self._rank(by_signature[item][0]) for item in signatures),
+                        known_signatures,
+                        self._bundle_rank(bundle),
                     )
                 )
             proposal_groups.extend(
@@ -1243,6 +1283,10 @@ class FeatureEngineeringEnsemble:
             ): proposal.name
             for proposal in selected_proposals
         }
+        selected_signatures_by_name: dict[str, list[str]] = {}
+        for signature in selected_signatures:
+            proposal = by_signature[signature][0]
+            selected_signatures_by_name.setdefault(proposal.name, []).append(signature)
         used_names = set(self.variable_names_in_)
         name_counts: dict[str, int] = {}
         unique_proposals: list[FeatureProposal] = []
@@ -1269,22 +1313,41 @@ class FeatureEngineeringEnsemble:
         # Keep bundle-level column names aligned with the name-disambiguation
         # outcome, especially when two engines generate proposals that start
         # from the same heuristic base name.
-        self.accepted_bundles_ = [
-            replace(
-                bundle,
-                names=tuple(
-                    selected_signature_to_name.get(node.signature, name)
-                    for node, name in zip(bundle.nodes, bundle.names, strict=False)
-                ),
-                downstream_columns=tuple(
-                    selected_signature_to_name.get(node.signature, name)
-                    for node, name in zip(bundle.nodes, bundle.downstream_columns, strict=False)
-                ),
-            )
-            for _, engine in engines
-            for bundle in getattr(engine, "accepted_bundles_", [])
-            if all(node.signature in selected_signature_set for node in bundle.nodes)
-        ]
+        accepted_bundles: list[FeatureBundleProposal] = []
+        for _, engine in engines:
+            for bundle in getattr(engine, "accepted_bundles_", []):
+                resolved_signatures: list[str] = []
+                used_fallback_signatures: set[str] = set()
+                for node, name in zip(bundle.nodes, bundle.names, strict=False):
+                    signature = node.signature
+                    if signature not in selected_signature_set:
+                        signature = next(
+                            (
+                                candidate
+                                for candidate in selected_signatures_by_name.get(name, [])
+                                if candidate not in used_fallback_signatures
+                            ),
+                            "",
+                        )
+                        used_fallback_signatures.add(signature)
+                    if signature:
+                        resolved_signatures.append(signature)
+                if len(resolved_signatures) != len(bundle.nodes):
+                    continue
+                accepted_bundles.append(
+                    replace(
+                        bundle,
+                        names=tuple(
+                            selected_signature_to_name[signature]
+                            for signature in resolved_signatures
+                        ),
+                        downstream_columns=tuple(
+                            selected_signature_to_name[signature]
+                            for signature in resolved_signatures
+                        ),
+                    )
+                )
+        self.accepted_bundles_ = accepted_bundles
         self.report_ = {
             "status": "ok",
             "algorithm": "mysr_dual_feature_engineering_v1",
@@ -1320,6 +1383,29 @@ class FeatureEngineeringEnsemble:
             proposal.invariance_score,
             -proposal.complexity,
         )
+
+    @staticmethod
+    def _bundle_rank(
+        bundle: FeatureBundleProposal,
+    ) -> tuple[float, float, float, float]:
+        """Return a proposal-compatible rank for bundles without node metadata."""
+
+        improvement = (
+            float(bundle.improvement_score)
+            if np.isfinite(bundle.improvement_score)
+            else float("-inf")
+        )
+        validation_score = (
+            -float(bundle.validation_nmse)
+            if np.isfinite(bundle.validation_nmse)
+            else float("-inf")
+        )
+        complexity = (
+            float(bundle.complexity)
+            if np.isfinite(bundle.complexity)
+            else float("inf")
+        )
+        return improvement, validation_score, 0.0, -complexity
 
     def transform(self, X: Any, *, augment: bool = True) -> NDArray[np.float64]:
         values = np.asarray(X, dtype=float)
