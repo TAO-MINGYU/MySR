@@ -166,3 +166,12 @@
 - **Confirmed**：非数值 TypeSpec 在半理论包装路径中会触发 backend `one(::Type{T})`；已在 MySRCore 隔离分支加入单位元能力检查，并修正 mutation/crossover 的 eager fallback。
 - **Verification**：该修改前端 TypeSpec 单用例通过；MySRCore `Pkg.test()` 全部通过。TypeSpec 全量在前 41 个测试通过后暴露另一个既有 TemplateExpression/custom combiner 特征映射越界问题，尚未修复。
 - **Residual/Unknown**：TemplateExpression 自定义 combiner 的多特征随机树约束仍需单独设计和回归；未进行大规模性能 benchmark。
+
+## 2026-09-12 - Merge canonical local frontend into crossover worktree
+
+- **Decision**：以 canonical MySR `main` 为前端代码主线完成合并；worktree 中没有需要独立保留的
+  代码分支，最终 `feat_engine.py` 与 `type_specs.py` 与 canonical 主线一致。
+- **Confirmed**：合并提交为 `7d76fc8`，未留下源码冲突或相对 canonical 的代码差异。
+- **Verification**：使用 env_mysr、临时 Julia bridge 指向合并后的 MySRCore worktree，量纲/RNN
+  聚焦测试 `62 passed`；`compileall` 与 Ruff 检查通过。
+- **Unknown**：未运行大规模搜索或 benchmark；既有线程配置和 sklearn 收敛警告仍存在。
