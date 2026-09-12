@@ -183,3 +183,9 @@
   聚焦测试 `62 passed`（94.39s）。
 - **Verification**：`python -m compileall -q mysr` 与目标文件 Ruff 均通过；未发现跨仓库接口 BUG。
 - **Unknown**：线程配置与 sklearn 收敛警告仍为既有环境/训练提示，未归因于本次合并。
+
+## 2026-09-12 - Full static quality scan
+
+- **Confirmed**：全量 `ruff check mysr` 报告 145 条历史问题，主要集中在旧导出器、测试辅助代码和兼容层；本轮目标文件 `feat_engine.py`、`type_specs.py` 仍保持 Ruff 通过。
+- **Decision**：不对 145 条跨模块历史提示进行自动批量修复，避免改变既有 API 或测试语义；继续采用按模块、按回归覆盖逐项治理。
+- **Unknown**：其余历史 lint 项需要独立的分模块清理计划。
