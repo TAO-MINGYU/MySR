@@ -1174,6 +1174,7 @@ class SurrogateFeatureEngineer:
                 isinstance(item.message, ConvergenceWarning) for item in caught
             )
             if converged or attempt == len(budgets) - 1:
+                self._last_surrogate_retry_count = attempt
                 return model
         raise RuntimeError("surrogate fitting exhausted without returning a model")
 
@@ -2627,6 +2628,7 @@ class SurrogateFeatureEngineer:
         self.parameter_search_report_ = []
         self.composition_search_layers_ = []
         if not self.config.enabled:
+            self.surrogate_convergence_retries_ = ()
             self.proposals_: list[FeatureProposal] = []
             self.accepted_proposals_: list[FeatureProposal] = []
             self.decomposition_proposals_: list[DecompositionProposal] = []
@@ -2669,9 +2671,11 @@ class SurrogateFeatureEngineer:
         model_validation_predictions: list[NDArray[np.float64]] = []
         model_validation_r2: list[float] = []
         model_seeds: list[int] = []
+        convergence_retries: list[int] = []
         for model_index in range(self.config.surrogate_ensemble_size):
             model_seed = seed + 7919 * model_index
             model = self._fit_surrogate(values[train], target[train], model_seed)
+            convergence_retries.append(self._last_surrogate_retry_count)
             validation_prediction = np.asarray(
                 model.predict(values[validation]), dtype=float
             )
@@ -2692,6 +2696,7 @@ class SurrogateFeatureEngineer:
         self.surrogate_ = fitted_models[0]
         self.surrogate_r2_ = baseline_r2
         self.surrogate_validation_scores_ = tuple(model_validation_r2)
+        self.surrogate_convergence_retries_ = tuple(convergence_retries)
         if quality_fraction < self.config.surrogate_stability_min_fraction:
             self.proposals_ = []
             self.accepted_proposals_ = []
@@ -2709,6 +2714,7 @@ class SurrogateFeatureEngineer:
                 "surrogate_r2": baseline_r2,
                 "surrogate_validation_r2": model_validation_r2,
                 "surrogate_quality_fraction": quality_fraction,
+                "surrogate_convergence_retries": convergence_retries,
                 "candidates": [],
                 "separability": [],
             }
@@ -2858,6 +2864,7 @@ class SurrogateFeatureEngineer:
             "power_exponents": [float(value) for value in self.config.power_exponents],
             "surrogate_r2": baseline_r2,
             "surrogate_validation_r2": model_validation_r2,
+            "surrogate_convergence_retries": convergence_retries,
             "surrogate_quality_fraction": quality_fraction,
             "surrogate_ensemble_size": len(fitted_models),
             "accepted_surrogate_count": len(models),
