@@ -178,6 +178,13 @@
 - **Confirmed**：集成分支 `feature/integrate-bridge-cache-20260913` 保持 canonical `main` 未修改，工作树仅保留既有未跟踪 `outputs/` 与 `worktrees/`。
 - **Verification**：`env_mysr` + 可写临时 depot 下 bridge cache 单测 `1 passed`，量纲/RNN 聚焦套件 `62 passed`；改动文件 `compileall` 通过。全文件 Ruff 仍报告历史遗留问题，本轮未批量改动。
 
+## 2026-09-13 - Local-primary population migration bridge merge
+
+- **Decision**：以 canonical MySR 分支 `feature/local-mysr-merge-20260913` 为主线，在隔离 worktree `feature/local-primary-population-migration-python-merge-20260913` 合入 population profile、migration topology/policy 参数及参数分组；保留本地 AFE、RNN-GPSR 和 bridge cache 改动。
+- **Confirmed**：合并提交 `3d3cf2c`；新增 population migration focused test，未留下冲突标记。
+- **Verification**：临时 Julia project 实际加载后端合并 worktree，`pytest -q mysr/test/test_population_migration.py` 为 `3 passed`；`python -m compileall -q mysr` 通过。当前环境没有 `ruff` 可执行文件，因此未声称 Ruff 通过。
+- **Unknown**：全仓库历史 lint 提示和新迁移策略的匹配预算性能仍需独立工作。
+
 ## 2026-09-13 - Merge bridge cache into local MySR branch
 
 - **Decision**：将已验证的 bridge cache 集成分支合并到本地工作分支 `feature/local-mysr-merge-20260913`，不直接修改 `main`；备份分支为 `backup/pre-local-mysr-merge-20260913`。
