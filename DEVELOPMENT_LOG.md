@@ -172,3 +172,8 @@
 - **Confirmed**：`mysr/julia_helpers.py` 对 `jl_is_function` 使用模块级 Julia 函数谓词缓存，避免重复 `jl.seval`；语义与原实现一致。
 - **Verification**：针对缓存行为的 pytest 单测通过（1 passed）；完整 backend 回归在对应 MySRCore 集成分支通过。
 - **Residual/Unknown**：未缓存 `julia_state_`/`julia_options_` 的反序列化，因为对象流可能携带可变状态，需独立失效策略后再评估。
+
+## 2026-09-13 - Focused bridge integration verification
+
+- **Confirmed**：集成分支 `feature/integrate-bridge-cache-20260913` 保持 canonical `main` 未修改，工作树仅保留既有未跟踪 `outputs/` 与 `worktrees/`。
+- **Verification**：`env_mysr` + 可写临时 depot 下 bridge cache 单测 `1 passed`，量纲/RNN 聚焦套件 `62 passed`；改动文件 `compileall` 通过。全文件 Ruff 仍报告历史遗留问题，本轮未批量改动。
