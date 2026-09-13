@@ -16,7 +16,7 @@ from functools import wraps
 from io import StringIO
 from multiprocessing import cpu_count
 from pathlib import Path
-from typing import Any, Literal, Tuple, Union, cast
+from typing import Any, Literal, Union, cast
 
 import numpy as np
 import pandas as pd
@@ -108,12 +108,6 @@ try:
 except ImportError:
     OLD_SKLEARN = True
 
-try:
-    from typing import List
-except ImportError:
-    from typing_extensions import List
-
-
 _CHECKPOINT_SCHEMA_VERSION = 3
 
 ALREADY_RAN = False
@@ -150,7 +144,7 @@ def _process_constraints(
 
             # Apply arity-specific validation for existing constraints
             if isinstance(constraints[op], tuple):
-                constraint_tuple = cast(Tuple[int, ...], constraints[op])
+                constraint_tuple = cast(tuple[int, ...], constraints[op])
                 # Validate that constraint tuple length matches operator arity
                 if len(constraint_tuple) != arity:
                     raise ValueError(
@@ -185,7 +179,7 @@ def _maybe_create_inline_operators(
 ) -> dict[int, list[str]]:
     operators = {arity: op_list.copy() for arity, op_list in operators.items()}
 
-    for arity, op_list in operators.items():
+    for op_list in operators.values():
         for i, op in enumerate(op_list):
             is_user_defined_operator = "(" in op
 
@@ -408,14 +402,14 @@ def _validate_export_mappings(extra_jax_mappings, extra_torch_mappings):
     if extra_jax_mappings is not None:
         for value in extra_jax_mappings.values():
             if not isinstance(value, str):
-                raise ValueError(
+                raise ValueError(  # noqa: TRY004 - preserve public validation API
                     "extra_jax_mappings must have keys that are strings! "
                     "e.g., {sympy.sqrt: 'jnp.sqrt'}."
                 )
     if extra_torch_mappings is not None:
         for value in extra_torch_mappings.values():
             if not callable(value):
-                raise ValueError(
+                raise ValueError(  # noqa: TRY004 - preserve public validation API
                     "extra_torch_mappings must be callable functions! "
                     "e.g., {sympy.sqrt: torch.sqrt}."
                 )
@@ -1255,8 +1249,8 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         loss_function_expression: str | None = None,
         loss_scale: Literal["log", "linear"] = "log",
         complexity_of_operators: dict[str, int | float] | None = None,
-        complexity_of_constants: int | float | None = None,
-        complexity_of_variables: int | float | list[int | float] | None = None,
+        complexity_of_constants: float | None = None,
+        complexity_of_variables: float | list[float] | None = None,
         complexity_mapping: str | None = None,
         parsimony: float = 0.0,
         formula_type: Literal["empirical", "semi_theoretical", "theoretical"] = "empirical",
@@ -1647,7 +1641,9 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                         f"`{k}` is not a valid keyword argument for MySRRegressor."
                     )
                     if len(suggested_keywords) > 0:
-                        err_msg += f" Did you mean {', '.join(map(lambda s: f'`{s}`', suggested_keywords))}?"
+                        err_msg += (
+                            f" Did you mean {', '.join(f'`{s}`' for s in suggested_keywords)}?"
+                        )
                     raise TypeError(err_msg)
 
     @classmethod
@@ -1664,7 +1660,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         selection_mask: NDArray[np.bool_] | None = None,
         nout: int = 1,
         **mysr_kwargs,
-    ) -> "MySRRegressor":
+    ) -> MySRRegressor:
         """
         Create a model from a saved model checkpoint or equation file.
 
@@ -1940,7 +1936,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             with open(temporary_path, "wb") as checkpoint_file:
                 try:
                     pkl.dump(self, checkpoint_file)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 - checkpointing must not abort fit
                     mysr_logger.debug(f"Error checkpointing model: {e}")
                     return
             os.replace(temporary_path, checkpoint_path)
@@ -1948,7 +1944,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             self.show_pickle_warnings_ = previous_show_pickle_warnings
             try:
                 temporary_path.unlink(missing_ok=True)
-            except Exception as e:
+            except OSError as e:
                 mysr_logger.debug(f"Error cleaning up temporary checkpoint file: {e}")
 
     def get_pkl_filename(self) -> Path:
@@ -1982,7 +1978,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             return None
         self._define_julia_expression_types()
         return cast(
-            Union[Tuple[VectorValue, AnyValue], None],
+            Union[tuple[VectorValue, AnyValue], None],
             jl_deserialize(stream),
         )
 
@@ -2326,7 +2322,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         # Convert binary_operators/unary_operators to operators format if needed
         param_container.operators = self._operators_from_params()
 
-        for param_name in map(lambda x: x.name, fields(_DynamicallySetParams)):
+        for param_name in (field.name for field in fields(_DynamicallySetParams)):
             user_param_value = getattr(self, param_name)
             if user_param_value is None and param_name != "batch_size":
                 # Leave as the default in DynamicallySetParams
@@ -2361,7 +2357,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         ndarray | None,
         ndarray | None,
         ArrayLike[str],
-        int | float | list[int | float] | None,
+        float | list[float] | None,
         ArrayLike[str] | None,
         str | ArrayLike[str] | None,
     ]:
@@ -2450,7 +2446,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                     "Spaces have been replaced with underscores. \n"
                     "Please rename the columns to valid names."
                 )
-        elif variable_names and any([" " in name for name in variable_names]):
+        elif variable_names and any(" " in name for name in variable_names):
             variable_names = [name.replace(" ", "_") for name in variable_names]
             warnings.warn(
                 "Spaces in `variable_names` are not supported. "
@@ -2533,7 +2529,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             raw_out = self._validate_data(X=X, y=y, reset=True, multi_output=True)  # type: ignore
         else:
             raw_out = validate_data(self, X=X, y=y, reset=True, multi_output=True)  # type: ignore
-        return cast(Tuple[ndarray, ndarray], raw_out)
+        return cast(tuple[ndarray, ndarray], raw_out)
 
     def _validate_data_X(self, X: Any) -> ndarray:
         if OLD_SKLEARN:
@@ -2611,7 +2607,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         y: ndarray,
         Xresampled: ndarray | None,
         variable_names: ArrayLike[str],
-        complexity_of_variables: int | float | list[int | float] | None,
+        complexity_of_variables: float | list[float] | None,
         X_dimensions: ArrayLike[DimensionVector] | None,
         y_dimensions: ArrayLike[DimensionVector] | DimensionVector | None,
         random_state: np.random.RandomState,
@@ -2791,7 +2787,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         y: ndarray,
         Xresampled: ndarray | None,
         variable_names: ArrayLike[str],
-        complexity_of_variables: int | float | list[int | float] | None,
+        complexity_of_variables: float | list[float] | None,
         X_dimensions: ArrayLike[DimensionVector] | None,
         y_dimensions: ArrayLike[DimensionVector] | DimensionVector | None,
         random_state: np.random.RandomState,
@@ -3002,7 +2998,6 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             custom_loss = type_spec_runtime.elementwise_loss
             custom_full_objective = type_spec_runtime.loss_function
             custom_loss_expression = type_spec_runtime.loss_function_expression
-        value_type = None if type_spec_runtime is None else type_spec_runtime.value_type
         loss_type = None
         constraints = runtime_params.constraints
 
@@ -3028,11 +3023,10 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 "and `parallelism='serial'` will result in non-deterministic searches."
             )
 
-        if cluster_manager is not None:
-            if parallelism != "multiprocessing":
-                raise ValueError(
-                    "To use cluster managers, you must set `parallelism='multiprocessing'`."
-                )
+        if cluster_manager is not None and parallelism != "multiprocessing":
+            raise ValueError(
+                "To use cluster managers, you must set `parallelism='multiprocessing'`."
+            )
 
         if constraints is not None:
             _constraints = _process_constraints(
@@ -3043,7 +3037,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             max_arity = max(operators.keys()) if operators else 2
             constraints_by_arity = {}
             for arity in range(1, max_arity + 1):
-                if arity in operators and operators[arity]:
+                if operators.get(arity):
                     constraints_by_arity[arity] = [
                         _constraints[op] for op in operators[arity]
                     ]
@@ -3088,14 +3082,13 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             else self._get_precision_mapped_dtype(np.array(X))
         )
 
-        if self.elementwise_loss is not None:
-            if type_spec_runtime is None:
-                assert np_dtype is not None
-                _validate_elementwise_loss(
-                    custom_loss,
-                    has_weights=weights is not None,
-                    probe_value=np_dtype(1.0),
-                )
+        if self.elementwise_loss is not None and type_spec_runtime is None:
+            assert np_dtype is not None
+            _validate_elementwise_loss(
+                custom_loss,
+                has_weights=weights is not None,
+                probe_value=np_dtype(1.0),
+            )
 
         if self.loss_function is not None:
             _validate_custom_full_objective(custom_full_objective)
@@ -3608,10 +3601,10 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         Xresampled=None,
         weights=None,
         variable_names: ArrayLike[str] | None = None,
-        complexity_of_variables: int | float | list[int | float] | None = None,
+        complexity_of_variables: float | list[float] | None = None,
         X_dimensions: ArrayLike[DimensionVector] | None = None,
         y_dimensions: DimensionVector | ArrayLike[DimensionVector] | None = None,
-    ) -> "MySRRegressor":
+    ) -> MySRRegressor:
         """
         Search for equations to fit the dataset and store them in `self.equations_`.
 
@@ -4171,7 +4164,9 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 output_index if self.nout_ > 1 else None,
             )
 
-        equation_file_contents = cast(List[pd.DataFrame], self.equation_file_contents_)
+        equation_file_contents = cast(
+            list[pd.DataFrame], self.equation_file_contents_
+        )
 
         ret_outputs: list[pd.DataFrame] = [
             cast(
@@ -4200,7 +4195,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         self,
         indices: list[int] | None = None,
         precision: int = 3,
-        columns: list[str] = ["equation", "complexity", "loss", "score"],
+        columns: list[str] | None = None,
     ) -> str:
         """Create a LaTeX/booktabs table for all, or some, of the equations.
 
@@ -4224,6 +4219,8 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         latex_table_str : str
             A string that will render a table in LaTeX of the equations.
         """
+        if columns is None:
+            columns = ["equation", "complexity", "loss", "score"]
         if not self._supports_export("latex"):
             raise ValueError(
                 f"`expression_spec={self.expression_spec_}` does not support latex export."
@@ -4248,7 +4245,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 self.equations_, indices=indices, precision=precision, columns=columns
             )
         else:
-            raise ValueError(
+            raise ValueError(  # noqa: TRY004 - preserve public validation API
                 "Invalid type for equations_ to pass to `latex_table`. "
                 "Expected a DataFrame or a list of DataFrames."
             )
