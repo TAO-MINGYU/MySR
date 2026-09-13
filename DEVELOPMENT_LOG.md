@@ -182,7 +182,7 @@
 
 - **Decision**：以 canonical MySR 分支 `feature/local-mysr-merge-20260913` 为主线，在隔离 worktree `feature/local-primary-population-migration-python-merge-20260913` 合入 population profile、migration topology/policy 参数及参数分组；保留本地 AFE、RNN-GPSR 和 bridge cache 改动。
 - **Confirmed**：合并提交 `3d3cf2c`；新增 population migration focused test，未留下冲突标记。
-- **Verification**：临时 Julia project 实际加载后端合并 worktree，`pytest -q mysr/test/test_population_migration.py` 为 `3 passed`；`python -m compileall -q mysr` 通过。当前环境没有 `ruff` 可执行文件，因此未声称 Ruff 通过。
+- **Verification**：临时 Julia project 实际加载后端合并 worktree，`pytest -q mysr/test/test_population_migration.py` 为 `3 passed`；量纲/RNN 聚焦套件 `test_dimensional_formula_type.py` + `test_rnn_gpsr_seeding.py` 为 `62 passed`（1 个既有 sklearn 收敛警告）；`python -m compileall -q mysr` 通过。当前环境没有 `ruff` 可执行文件，因此未声称 Ruff 通过。
 - **Unknown**：全仓库历史 lint 提示和新迁移策略的匹配预算性能仍需独立工作。
 
 ## 2026-09-13 - Merge bridge cache into local MySR branch
