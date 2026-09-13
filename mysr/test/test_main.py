@@ -1420,7 +1420,7 @@ def manually_create_model(equations, feature_names=None):
         model.selection_mask_ = None
         model.feature_names_in_ = np.array(feature_names, dtype=object)
         for i in range(model.nout_):
-            equations[i]["complexity loss equation".split(" ")].to_csv(
+            equations[i][["complexity", "loss", "equation"]].to_csv(
                 str(
                     Path(output_directory)
                     / run_id
@@ -1432,7 +1432,7 @@ def manually_create_model(equations, feature_names=None):
         model.nout_ = 1
         model.selection_mask_ = None
         model.feature_names_in_ = np.array(feature_names, dtype=object)
-        equations["complexity loss equation".split(" ")].to_csv(
+        equations[["complexity", "loss", "equation"]].to_csv(
             str(Path(output_directory) / run_id / "hall_of_fame.csv.bak"),
             index=False,
         )
@@ -1512,7 +1512,7 @@ class TestFeatureSelection(unittest.TestCase):
         )
         np.testing.assert_array_equal(selection, [False, False, True, True, False])
         selected_var_names = [var_names[i] for i in range(5) if selection[i]]
-        self.assertEqual(set(selected_var_names), set("x2 x3".split(" ")))
+        self.assertEqual(set(selected_var_names), set(["x2", "x3"]))
         np.testing.assert_array_equal(
             np.sort(selected_X, axis=1), np.sort(X[:, [2, 3]], axis=1)
         )
@@ -1736,9 +1736,8 @@ class TestMiscellaneous(unittest.TestCase):
 
             with mock.patch(
                 "mysr.sr.os.replace", side_effect=OSError("read-only directory")
-            ):
-                with self.assertRaises(OSError):
-                    model._checkpoint()
+            ), self.assertRaises(OSError):
+                model._checkpoint()
 
             self.assertFalse(checkpoint.exists())
             self.assertEqual(list(checkpoint.parent.glob("*.tmp")), [])
@@ -2103,7 +2102,7 @@ class TestMiscellaneous(unittest.TestCase):
         # and removing leading "\s*-\s*":
         params = []
         with open(param_groupings_file, "r") as f:
-            for line in f.readlines():
+            for line in f:
                 if line.strip().endswith(":"):
                     continue
                 if line.strip().startswith("-"):

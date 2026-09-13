@@ -8,12 +8,12 @@ from .test_startup import runtests as runtests_startup
 from .test_torch import runtests as runtests_torch
 
 __all__ = [
-    "runtests",
-    "runtests_jax",
-    "runtests_torch",
-    "runtests_autodiff",
     "get_runtests_cli",
-    "runtests_startup",
+    "runtests",
+    "runtests_autodiff",
     "runtests_dev",
+    "runtests_jax",
     "runtests_slurm",
+    "runtests_startup",
+    "runtests_torch",
 ]

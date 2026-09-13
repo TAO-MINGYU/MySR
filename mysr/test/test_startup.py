@@ -10,7 +10,6 @@ from pathlib import Path
 import numpy as np
 
 from mysr import MySRRegressor, jl
-from mysr.julia_import import jl_version
 from mysr.julia_registry_helpers import PREFERENCE_KEY, try_with_registry_fallback
 
 from .params import DEFAULT_NITERATIONS, DEFAULT_POPULATIONS
@@ -78,7 +77,7 @@ class TestStartup(unittest.TestCase):
 
                         print("Loading model from file")
                         model = MySRRegressor.from_file(
-                            run_directory="{str(Path(tmpdirname) / model.run_id_)}"
+                            run_directory="{Path(tmpdirname) / model.run_id_!s}"
                         )
 
                         assert model.julia_state_ is not None

@@ -5,7 +5,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 JULIAPKG_JSON = REPO_ROOT / "mysr" / "juliapkg.json"
 DEV_CONFIG_SCRIPT = REPO_ROOT / "mysr" / "test" / "generate_dev_juliapkg.py"

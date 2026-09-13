@@ -26,7 +26,7 @@ class TestDev(unittest.TestCase):
             ],
             env=os.environ,
             cwd=repo_root,
-            universal_newlines=True,
+            text=True,
         )
         self.assertEqual(build_result.returncode, 0)
         test_result = subprocess.run(
