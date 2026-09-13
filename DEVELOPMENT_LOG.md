@@ -185,6 +185,12 @@
 - **Verification**：临时 Julia project 实际加载后端合并 worktree，`pytest -q mysr/test/test_population_migration.py` 为 `3 passed`；量纲/RNN 聚焦套件 `test_dimensional_formula_type.py` + `test_rnn_gpsr_seeding.py` 为 `62 passed`（1 个既有 sklearn 收敛警告）；`python -m compileall -q mysr` 通过。当前环境没有 `ruff` 可执行文件，因此未声称 Ruff 通过。
 - **Unknown**：全仓库历史 lint 提示和新迁移策略的匹配预算性能仍需独立工作。
 
+## 2026-09-13 - Surrogate convergence retry and Ruff verification
+
+- **Decision**：`SurrogateFeatureEngineer` 对 MLP surrogate 捕获 `ConvergenceWarning` 后，使用相同 random seed 将 `max_iter` 有界翻倍重试一次（上限 4000），避免小数据集在首次预算内欠训练并向用户泄漏非阻断警告。
+- **Verification**：`ruff 0.16.3` 对修改的 `feature_engineering.py` 和 migration test 通过；population migration `3 passed`；量纲/RNN 聚焦套件 `62 passed` 且不再出现 sklearn 收敛警告；`compileall` 通过。
+- **Unknown**：更长重试预算的端到端 AFE 成本与搜索质量收益尚未独立 benchmark；全仓库仍有既有 lint 提示。
+
 ## 2026-09-13 - Merge bridge cache into local MySR branch
 
 - **Decision**：将已验证的 bridge cache 集成分支合并到本地工作分支 `feature/local-mysr-merge-20260913`，不直接修改 `main`；备份分支为 `backup/pre-local-mysr-merge-20260913`。
