@@ -166,3 +166,9 @@
 - **Confirmed**：非数值 TypeSpec 在半理论包装路径中会触发 backend `one(::Type{T})`；已在 MySRCore 隔离分支加入单位元能力检查，并修正 mutation/crossover 的 eager fallback。
 - **Verification**：该修改前端 TypeSpec 单用例通过；MySRCore `Pkg.test()` 全部通过。TypeSpec 全量在前 41 个测试通过后暴露另一个既有 TemplateExpression/custom combiner 特征映射越界问题，尚未修复。
 - **Residual/Unknown**：TemplateExpression 自定义 combiner 的多特征随机树约束仍需单独设计和回归；未进行大规模性能 benchmark。
+
+## 2026-09-13 - Python↔Julia bridge predicate cache
+
+- **Confirmed**：`mysr/julia_helpers.py` 对 `jl_is_function` 使用模块级 Julia 函数谓词缓存，避免重复 `jl.seval`；语义与原实现一致。
+- **Verification**：针对缓存行为的 pytest 单测通过（1 passed）；完整 backend 回归在对应 MySRCore 集成分支通过。
+- **Residual/Unknown**：未缓存 `julia_state_`/`julia_options_` 的反序列化，因为对象流可能携带可变状态，需独立失效策略后再评估。
