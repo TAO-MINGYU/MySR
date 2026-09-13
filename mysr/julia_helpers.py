@@ -20,6 +20,11 @@ PythonCall = jl.PythonCall
 
 jl.seval("using MySRCore.SymbolicRegression: plus, sub, mult, div, pow")
 
+# Compile the predicate once during bridge initialization. ``jl_is_function``
+# is used repeatedly while validating operators and losses; evaluating the
+# same Julia closure on every call needlessly reparses and recompiles it.
+_JL_IS_FUNCTION = cast(Callable[[Any], bool], jl.seval("op -> op isa Function"))
+
 
 def _escape_filename(filename):
     """Turn a path into a string with correctly escaped backslashes."""
@@ -78,7 +83,7 @@ def jl_named_tuple(d):
 
 
 def jl_is_function(f) -> bool:
-    return cast(bool, jl.seval("op -> op isa Function")(f))
+    return bool(_JL_IS_FUNCTION(f))
 
 
 def jl_serialize(obj: Any) -> NDArray[np.uint8]:
