@@ -38,7 +38,7 @@ from mysr import (
 from mysr.export_latex import sympy2latex
 from mysr.export_sympy import mysr2sympy
 from mysr.feature_selection import _handle_feature_selection, run_feature_selection
-from mysr.julia_helpers import _load_cluster_manager, init_julia
+from mysr.julia_helpers import _load_cluster_manager, init_julia, jl_is_function
 from mysr.sr import (
     _check_assertions,
     _create_julia_operators_and_loss_functions,
@@ -172,6 +172,17 @@ class TestPipeline(unittest.TestCase):
             1.5
         """)
         self.assertEqual(num, 1.5)
+
+    def test_jl_is_function_uses_cached_predicate(self):
+        """The bridge should reuse its Julia function predicate."""
+        from mysr import julia_helpers
+
+        sentinel = object()
+        with mock.patch.object(
+            julia_helpers, "_JL_IS_FUNCTION", return_value=True
+        ) as predicate:
+            self.assertTrue(jl_is_function(sentinel))
+            predicate.assert_called_once_with(sentinel)
 
     def test_high_precision_search_custom_loss(self):
         y = 1.23456789 * self.X[:, 0]
