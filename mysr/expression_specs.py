@@ -46,7 +46,7 @@ class AbstractExpressionSpec(ABC):
     @abstractmethod
     def julia_expression_spec(self) -> AnyValue:
         """The expression specification"""
-        ...  # pragma: no cover
+        pass  # pragma: no cover  # noqa: PIE790
 
     def _julia_expression_spec_source(self, *, prototype: str | None) -> str | None:
         """Return self-contained Julia source for a TypeSpec-compatible spec.
@@ -81,7 +81,7 @@ class AbstractExpressionSpec(ABC):
         i: int | None = None,
     ) -> pd.DataFrame:
         """Create additional columns in the equations dataframe."""
-        ...  # pragma: no cover
+        pass  # pragma: no cover  # noqa: PIE790
 
     @property
     def evaluates_in_julia(self) -> bool:

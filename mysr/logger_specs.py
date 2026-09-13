@@ -14,17 +14,17 @@ class AbstractLoggerSpec(ABC):
     @abstractmethod
     def create_logger(self) -> AnyValue:
         """Create a logger instance."""
-        ...  # pragma: no cover
+        pass  # pragma: no cover  # noqa: PIE790
 
     @abstractmethod
     def write_hparams(self, logger: AnyValue, hparams: dict[str, Any]) -> None:
         """Write hyperparameters to the logger."""
-        ...  # pragma: no cover
+        pass  # pragma: no cover  # noqa: PIE790
 
     @abstractmethod
     def close(self, logger: AnyValue) -> None:
         """Close the logger instance."""
-        ...  # pragma: no cover
+        pass  # pragma: no cover  # noqa: PIE790
 
 
 @dataclass

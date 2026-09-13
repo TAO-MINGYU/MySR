@@ -15,7 +15,7 @@ class AbstractPlugin(ABC):
     @abstractmethod
     def julia_plugin(self) -> AnyValue:
         """Create the corresponding SymbolicRegression.jl plugin."""
-        ...  # pragma: no cover
+        pass  # pragma: no cover  # noqa: PIE790
 
 
 @dataclass(frozen=True)
