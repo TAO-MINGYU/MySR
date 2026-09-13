@@ -204,7 +204,7 @@ def test_torch_rnn_records_backend_feedback_round() -> None:
 
 
 def test_torch_rnn_falls_back_to_training_sequences_when_quality_gate_fails() -> None:
-    torch = pytest.importorskip("torch")
+    pytest.importorskip("torch")
     generator = TorchRNNGenerator(
         TorchRNNConfig(
             epochs=1,

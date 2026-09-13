@@ -72,13 +72,13 @@ class TestPipeline(unittest.TestCase):
     def setUp(self):
         # Using inspect,
         # get default niterations from MySRRegressor, and double them:
-        self.default_test_kwargs = dict(
-            progress=False,
-            model_selection="accuracy",
-            niterations=DEFAULT_NITERATIONS * 2,
-            populations=DEFAULT_POPULATIONS * 2,
-            temp_equation_file=True,
-        )
+        self.default_test_kwargs = {
+            "progress": False,
+            "model_selection": "accuracy",
+            "niterations": DEFAULT_NITERATIONS * 2,
+            "populations": DEFAULT_POPULATIONS * 2,
+            "temp_equation_file": True,
+        }
         self.rstate = np.random.RandomState(0)
         self.X = self.rstate.randn(100, 5)
 
@@ -491,15 +491,15 @@ class TestPipeline(unittest.TestCase):
             for case in (1, 2):
                 y = self.X[:, [0, 1]]
                 if case == 1:
-                    kwargs = dict(complexity_of_variables=[2, 3])
+                    kwargs = {"complexity_of_variables": [2, 3]}
                 elif case == 2:
-                    kwargs = dict(complexity_of_variables=2)
+                    kwargs = {"complexity_of_variables": 2}
 
                 if outer:
                     outer_kwargs = kwargs
-                    inner_kwargs = dict()
+                    inner_kwargs = {}
                 else:
-                    outer_kwargs = dict()
+                    outer_kwargs = {}
                     inner_kwargs = kwargs
 
                 model = MySRRegressor(
@@ -1198,7 +1198,7 @@ print(json.dumps({{
         )
         try:
             model.fit(X, y)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - backend validation may raise any Julia exception
             if "constraint tuple has length" in str(e):
                 self.fail(f"Valid constraints should not raise validation error: {e}")
 
@@ -1218,9 +1218,9 @@ print(json.dumps({{
 class TestGuesses(unittest.TestCase):
     def setUp(self):
         self.rstate = np.random.RandomState(1)
-        self.default_test_kwargs = dict(
-            niterations=0, progress=False, temp_equation_file=False
-        )
+        self.default_test_kwargs = {
+            "niterations": 0, "progress": False, "temp_equation_file": False
+        }
 
     def test_single_output_string_guesses(self):
         X = self.rstate.randn(100, 2)
@@ -1477,10 +1477,10 @@ class TestBest(unittest.TestCase):
 
     def test_all_selection_strategies(self):
         equations = pd.DataFrame(
-            dict(
-                loss=[1.0, 0.1, 0.01, 0.001 * 1.4, 0.001],
-                score=[0.5, 1.0, 0.5, 0.5, 0.3],
-            )
+            {
+                "loss": [1.0, 0.1, 0.01, 0.001 * 1.4, 0.001],
+                "score": [0.5, 1.0, 0.5, 0.5, 0.3],
+            }
         )
         idx_accuracy = idx_model_selection(equations, "accuracy")
         self.assertEqual(idx_accuracy, 4)
@@ -1512,7 +1512,7 @@ class TestFeatureSelection(unittest.TestCase):
         )
         np.testing.assert_array_equal(selection, [False, False, True, True, False])
         selected_var_names = [var_names[i] for i in range(5) if selection[i]]
-        self.assertEqual(set(selected_var_names), set(["x2", "x3"]))
+        self.assertEqual(set(selected_var_names), {"x2", "x3"})
         np.testing.assert_array_equal(
             np.sort(selected_X, axis=1), np.sort(X[:, [2, 3]], axis=1)
         )
@@ -1776,7 +1776,7 @@ class TestMiscellaneous(unittest.TestCase):
                 print("Passed", check.func.__name__)
             except unittest.SkipTest as exc:
                 print("Skipped", check.func.__name__, "with:", exc)
-            except Exception:
+            except Exception:  # noqa: BLE001 - estimator checks intentionally capture all failures
                 error_message = str(traceback.format_exc())
                 exception_messages.append(
                     f"{check.func.__name__}:\n" + error_message + "\n"
@@ -1809,8 +1809,9 @@ class TestMiscellaneous(unittest.TestCase):
         )()
         fake_stdout.__dir__ = lambda: ["write"]  # Ensure "buffer" is absent
 
-        with mock.patch("mysr.sr.sys.stdout", fake_stdout):
-            with warnings.catch_warnings(record=True) as caught:
+        with mock.patch("mysr.sr.sys.stdout", fake_stdout), warnings.catch_warnings(
+            record=True
+        ) as caught:
                 warnings.simplefilter("always")
                 model = MySRRegressor(
                     progress=True,
@@ -2109,7 +2110,7 @@ class TestMiscellaneous(unittest.TestCase):
                     params.append(line.strip()[1:].strip())
 
         regressor_params = [
-            p for p in DEFAULT_PARAMS.keys() if p not in ["self", "kwargs"]
+            p for p in DEFAULT_PARAMS if p not in ["self", "kwargs"]
         ]
 
         # Check the sets are equal:
@@ -2121,9 +2122,10 @@ class TestMiscellaneous(unittest.TestCase):
         self.assertTrue(jl.seval("ClusterManagers isa Module"))
         self.assertTrue(jl.seval("SlurmClusterManager isa Module"))
 
-        with mock.patch.dict(os.environ, {"SLURM_JOB_ID": "1", "SLURM_NTASKS": "2"}):
-            with self.assertRaisesRegex(JuliaError, "allocation has 2 tasks"):
-                _load_cluster_manager("slurm")(1)
+        with mock.patch.dict(
+            os.environ, {"SLURM_JOB_ID": "1", "SLURM_NTASKS": "2"}
+        ), self.assertRaisesRegex(JuliaError, "allocation has 2 tasks"):
+            _load_cluster_manager("slurm")(1)
 
     def test_cluster_manager_rejects_untrusted_name(self):
         with self.assertRaisesRegex(ValueError, "Unsupported cluster_manager"):
@@ -2131,9 +2133,12 @@ class TestMiscellaneous(unittest.TestCase):
 
     def test_cluster_manager_is_validated_before_package_loading(self):
         """Reject invalid names without touching the Julia package registry."""
-        with mock.patch("mysr.julia_extensions.load_package") as load_package:
-            with self.assertRaisesRegex(ValueError, "Unsupported cluster_manager"):
-                load_required_packages(cluster_manager="slurm; evil()")
+        with mock.patch(
+            "mysr.julia_extensions.load_package"
+        ) as load_package, self.assertRaisesRegex(
+            ValueError, "Unsupported cluster_manager"
+        ):
+            load_required_packages(cluster_manager="slurm; evil()")
         load_package.assert_not_called()
 
     def test_slurm_package_loading_does_not_require_turbo_extension(self):
@@ -2198,7 +2203,7 @@ class TestHelpMessages(unittest.TestCase):
         self.assertEqual(model.fraction_replaced, 0.2)
 
         with self.assertRaises(NotImplementedError):
-            model.equation_file_
+            _ = model.equation_file_
 
         with self.assertRaises(ValueError) as cm:
             MySRRegressor.from_file(equation_file="", run_directory="")
@@ -2284,40 +2289,40 @@ class TestHelpMessages(unittest.TestCase):
     @skip_if_beartype
     def test_bad_kwargs(self):
         bad_kwargs = [
-            dict(
-                kwargs=dict(
-                    elementwise_loss="g(x, y) = 0.0", loss_function="f(args...) = 0.0"
-                ),
-                error=JuliaError,
-            ),
-            dict(
-                kwargs=dict(maxsize=3),
-                error=ValueError,
-            ),
-            dict(
-                kwargs=dict(tournament_selection_n=10, population_size=3),
-                error=ValueError,
-            ),
-            dict(
-                kwargs=dict(optimizer_algorithm="COBYLA"),
-                error=NotImplementedError,
-            ),
-            dict(
-                kwargs=dict(
-                    constraints={
+            {
+                "kwargs": {
+                    "elementwise_loss": "g(x, y) = 0.0", "loss_function": "f(args...) = 0.0"
+                },
+                "error": JuliaError,
+            },
+            {
+                "kwargs": {"maxsize": 3},
+                "error": ValueError,
+            },
+            {
+                "kwargs": {"tournament_selection_n": 10, "population_size": 3},
+                "error": ValueError,
+            },
+            {
+                "kwargs": {"optimizer_algorithm": "COBYLA"},
+                "error": NotImplementedError,
+            },
+            {
+                "kwargs": {
+                    "constraints": {
                         "+": (3, 5),
                     }
-                ),
-                error=NotImplementedError,
-            ),
-            dict(
-                kwargs=dict(binary_operators=["α(x, y) = x - y"]),
-                error=ValueError,
-            ),
-            dict(
-                kwargs=dict(model_selection="unknown"),
-                error=NotImplementedError,
-            ),
+                },
+                "error": NotImplementedError,
+            },
+            {
+                "kwargs": {"binary_operators": ["α(x, y) = x - y"]},
+                "error": ValueError,
+            },
+            {
+                "kwargs": {"model_selection": "unknown"},
+                "error": NotImplementedError,
+            },
         ]
         for opt in bad_kwargs:
             model = MySRRegressor(**opt["kwargs"], niterations=1)
@@ -2359,25 +2364,21 @@ class TestHelpMessages(unittest.TestCase):
             getattr(mysr_module, name)
 
 
-TRUE_PREAMBLE = "\n".join(
-    [
-        r"\usepackage{breqn}",
-        r"\usepackage{booktabs}",
-        "",
-        "...",
-        "",
-    ]
-)
+TRUE_PREAMBLE = r"""\usepackage{breqn}
+\usepackage{booktabs}
+
+...
+"""
 
 
 class TestLaTeXTable(unittest.TestCase):
     def setUp(self):
         equations = pd.DataFrame(
-            dict(
-                equation=["x0", "cos(x0)", "x0 + x1 - cos(x1 * x0)"],
-                loss=[1.052, 0.02315, 1.12347e-15],
-                complexity=[1, 2, 8],
-            )
+            {
+                "equation": ["x0", "cos(x0)", "x0 + x1 - cos(x1 * x0)"],
+                "loss": [1.052, 0.02315, 1.12347e-15],
+                "complexity": [1, 2, 8],
+            }
         )
         self.model = manually_create_model(equations)
         self.maxDiff = None
@@ -2467,18 +2468,18 @@ class TestLaTeXTable(unittest.TestCase):
 
     def test_multi_output(self):
         equations1 = pd.DataFrame(
-            dict(
-                equation=["x0", "cos(x0)", "x0 + x1 - cos(x1 * x0)"],
-                loss=[1.052, 0.02315, 1.12347e-15],
-                complexity=[1, 2, 8],
-            )
+            {
+                "equation": ["x0", "cos(x0)", "x0 + x1 - cos(x1 * x0)"],
+                "loss": [1.052, 0.02315, 1.12347e-15],
+                "complexity": [1, 2, 8],
+            }
         )
         equations2 = pd.DataFrame(
-            dict(
-                equation=["x1", "cos(x1)", "x0 * x0 * x1"],
-                loss=[1.32, 0.052, 2e-15],
-                complexity=[1, 2, 5],
-            )
+            {
+                "equation": ["x1", "cos(x1)", "x0 * x0 * x1"],
+                "loss": [1.32, 0.052, 2e-15],
+                "complexity": [1, 2, 5],
+            }
         )
         equations = [equations1, equations2]
         model = manually_create_model(equations)
@@ -2532,11 +2533,11 @@ class TestLaTeXTable(unittest.TestCase):
         """
         long_equation = "".join(long_equation.split("\n")).strip()
         equations = pd.DataFrame(
-            dict(
-                equation=["x0", "cos(x0)", long_equation],
-                loss=[1.052, 0.02315, 1.12347e-15],
-                complexity=[1, 2, 30],
-            )
+            {
+                "equation": ["x0", "cos(x0)", long_equation],
+                "loss": [1.052, 0.02315, 1.12347e-15],
+                "complexity": [1, 2, 30],
+            }
         )
         model = manually_create_model(equations)
         latex_table_str = model.latex_table()
@@ -2555,13 +2556,13 @@ class TestLaTeXTable(unittest.TestCase):
 
 class TestDimensionalConstraints(unittest.TestCase):
     def setUp(self):
-        self.default_test_kwargs = dict(
-            progress=False,
-            model_selection="accuracy",
-            niterations=DEFAULT_NITERATIONS * 2,
-            populations=DEFAULT_POPULATIONS * 2,
-            temp_equation_file=True,
-        )
+        self.default_test_kwargs = {
+            "progress": False,
+            "model_selection": "accuracy",
+            "niterations": DEFAULT_NITERATIONS * 2,
+            "populations": DEFAULT_POPULATIONS * 2,
+            "temp_equation_file": True,
+        }
         self.rstate = np.random.RandomState(0)
         self.X = self.rstate.randn(100, 5)
 

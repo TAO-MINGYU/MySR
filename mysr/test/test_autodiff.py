@@ -13,13 +13,13 @@ from .params import DEFAULT_NITERATIONS
 
 class TestAutodiff(unittest.TestCase):
     def setUp(self):
-        self.default_test_kwargs = dict(
-            progress=False,
-            model_selection="accuracy",
-            niterations=DEFAULT_NITERATIONS * 2,
-            populations=8,
-            temp_equation_file=True,
-        )
+        self.default_test_kwargs = {
+            "progress": False,
+            "model_selection": "accuracy",
+            "niterations": DEFAULT_NITERATIONS * 2,
+            "populations": 8,
+            "temp_equation_file": True,
+        }
         self.rstate = np.random.RandomState(0)
         self.X = self.rstate.randn(100, 5)
 

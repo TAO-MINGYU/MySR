@@ -148,36 +148,7 @@ class TestSlurm(unittest.TestCase):
     def test_mysr_slurm_cluster_manager(self):
         job_script = self.data_dir / "mysr_slurm_job.sh"
         job_script.write_text(
-            "\n".join(
-                [
-                    "#!/bin/bash",
-                    "#SBATCH --job-name=mysr-slurm-test",
-                    "#SBATCH --partition=normal",
-                    "#SBATCH --nodes=2",
-                    "#SBATCH --ntasks-per-node=2",
-                    "#SBATCH --time=40:00",
-                    "set -euo pipefail",
-                    "export JULIA_DEBUG=SlurmClusterManager",
-                    "python3 - <<'PY'",
-                    "import numpy as np",
-                    "from mysr import MySRRegressor",
-                    "X = np.random.RandomState(0).randn(30, 2)",
-                    "y = X[:, 0] + 1.0",
-                    "model = MySRRegressor(",
-                    "    niterations=3,",
-                    "    populations=4,",
-                    "    progress=False,",
-                    "    temp_equation_file=True,",
-                    "    parallelism='multiprocessing',",
-                    "    procs=4,",
-                    "    cluster_manager='slurm',",
-                    "    verbosity=0,",
-                    ")",
-                    "model.fit(X, y)",
-                    "print('MYSR_SLURM_OK')",
-                    "PY",
-                ]
-            )
+            "#!/bin/bash\n#SBATCH --job-name=mysr-slurm-test\n#SBATCH --partition=normal\n#SBATCH --nodes=2\n#SBATCH --ntasks-per-node=2\n#SBATCH --time=40:00\nset -euo pipefail\nexport JULIA_DEBUG=SlurmClusterManager\npython3 - <<'PY'\nimport numpy as np\nfrom mysr import MySRRegressor\nX = np.random.RandomState(0).randn(30, 2)\ny = X[:, 0] + 1.0\nmodel = MySRRegressor(\n    niterations=3,\n    populations=4,\n    progress=False,\n    temp_equation_file=True,\n    parallelism='multiprocessing',\n    procs=4,\n    cluster_manager='slurm',\n    verbosity=0,\n)\nmodel.fit(X, y)\nprint('MYSR_SLURM_OK')\nPY"
             + "\n"
         )
         job_script.chmod(0o755)

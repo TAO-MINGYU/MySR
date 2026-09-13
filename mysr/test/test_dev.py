@@ -27,6 +27,7 @@ class TestDev(unittest.TestCase):
             env=os.environ,
             cwd=repo_root,
             text=True,
+            check=False,
         )
         self.assertEqual(build_result.returncode, 0)
         test_result = subprocess.run(
@@ -39,10 +40,10 @@ class TestDev(unittest.TestCase):
                 "-c",
                 "from mysr import SymbolicRegression as SR; print(SR.__test_function())",
             ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             env=os.environ,
             cwd=repo_root,
+            check=False,
         )
         self.assertEqual(test_result.returncode, 0)
         self.assertEqual(test_result.stdout.decode("utf-8").strip(), "2.3")

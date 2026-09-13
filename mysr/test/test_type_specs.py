@@ -1041,7 +1041,7 @@ print(json.dumps({{
             spec,
             expression_spec=identity_template(),
             operators={
-                2: ["concat_vectors(a, b) = " "VariableVector(vcat(a.data, b.data))"]
+                2: [("concat_vectors(a, b) = " "VariableVector(vcat(a.data, b.data))")]
             },
             elementwise_loss="""
                 function vector_loss(a, b)::Float64
@@ -1363,24 +1363,23 @@ print(json.dumps({{
 
     def test_rejects_invalid_specs(self):
         cases = [
-            (dict(name="not an id"), "not an identifier"),
-            (dict(fields={}), "non-empty ordered mapping"),
-            (dict(fields={"not an id": "String"}), "is not an identifier"),
-            (dict(fields={"data": " "}), "requires a Julia type"),
-            (dict(sample=" "), "must contain Julia source"),
-            (dict(scalar_constants="value -> [1.0]"), "must be provided together"),
-            (dict(mutate=None), "requires an explicit `mutate`"),
-            (dict(string=" "), "cannot be empty"),
+            ({"name": "not an id"}, "not an identifier"),
+            ({"fields": {}}, "non-empty ordered mapping"),
+            ({"fields": {"not an id": "String"}}, "is not an identifier"),
+            ({"fields": {"data": " "}}, "requires a Julia type"),
+            ({"sample": " "}, "must contain Julia source"),
+            ({"scalar_constants": "value -> [1.0]"}, "must be provided together"),
+            ({"mutate": None}, "requires an explicit `mutate`"),
+            ({"string": " "}, "cannot be empty"),
         ]
         for overrides, message in cases:
-            with self.subTest(**overrides):
-                with self.assertRaisesRegex(ValueError, message):
-                    string_spec(**overrides)
+            with self.subTest(**overrides), self.assertRaisesRegex(ValueError, message):
+                string_spec(**overrides)
 
     def test_rejects_invalid_configurations(self):
-        no_loss = dict(
-            elementwise_loss=None, loss_function=None, loss_function_expression=None
-        )
+        no_loss = {
+            "elementwise_loss": None, "loss_function": None, "loss_function_expression": None
+        }
         operators = {1: ["x -> x"]}
         cases = [
             (string_spec(), operators, no_loss, "exactly one of"),
@@ -1402,9 +1401,10 @@ print(json.dumps({{
             (string_spec(), {1: [" "]}, no_loss, "must contain Julia source"),
         ]
         for spec, operator_table, losses, message in cases:
-            with self.subTest(message=message):
-                with self.assertRaisesRegex(ValueError, message):
-                    validate_type_spec_configuration(spec, operator_table, **losses)
+            with self.subTest(message=message), self.assertRaisesRegex(
+                ValueError, message
+            ):
+                validate_type_spec_configuration(spec, operator_table, **losses)
 
     def test_fit_data_validation(self):
         X = np.array([["a"], ["b"]], dtype=object)
@@ -1497,9 +1497,10 @@ print(json.dumps({{
             early_stop_condition=None,
         )
         load_type_spec_runtime(definition)
-        with patch("mysr.type_specs._runtime_sources", return_value=["x -> x"] * 99):
-            with self.assertRaisesRegex(RuntimeError, "inconsistent"):
-                load_type_spec_runtime(definition)
+        with patch(
+            "mysr.type_specs._runtime_sources", return_value=["x -> x"] * 99
+        ), self.assertRaisesRegex(RuntimeError, "inconsistent"):
+            load_type_spec_runtime(definition)
 
     def test_fitted_model_guards(self):
         X, y = string_data()

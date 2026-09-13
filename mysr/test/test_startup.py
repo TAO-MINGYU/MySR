@@ -21,13 +21,13 @@ class TestStartup(unittest.TestCase):
     def setUp(self):
         # Using inspect,
         # get default niterations from MySRRegressor, and double them:
-        self.default_test_kwargs = dict(
-            progress=False,
-            model_selection="accuracy",
-            niterations=DEFAULT_NITERATIONS * 2,
-            populations=DEFAULT_POPULATIONS * 2,
-            temp_equation_file=True,
-        )
+        self.default_test_kwargs = {
+            "progress": False,
+            "model_selection": "accuracy",
+            "niterations": DEFAULT_NITERATIONS * 2,
+            "populations": DEFAULT_POPULATIONS * 2,
+            "temp_equation_file": True,
+        }
         self.rstate = np.random.RandomState(0)
         self.X = self.rstate.randn(100, 5)
 
@@ -98,9 +98,9 @@ class TestStartup(unittest.TestCase):
                         assert best_loss <= {best_loss}
                     """),
                 ],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
                 env=os.environ,
+                check=False,
             )
             self.assertEqual(result.returncode, 0)
             self.assertIn("Loading model from file", result.stdout.decode())
@@ -108,25 +108,25 @@ class TestStartup(unittest.TestCase):
 
     def test_bad_startup_options(self):
         warning_tests = [
-            dict(
-                code='import os; os.environ["PYTHON_JULIACALL_HANDLE_SIGNALS"] = "no"; import mysr',
-                msg="PYTHON_JULIACALL_HANDLE_SIGNALS environment variable is set",
-            ),
-            dict(
-                code='import os; os.environ["PYTHON_JULIACALL_THREADS"] = "1"; import mysr',
-                msg="PYTHON_JULIACALL_THREADS environment variable is set",
-            ),
-            dict(
-                code="import juliacall; import mysr",
-                msg="juliacall module already imported.",
-            ),
+            {
+                "code": 'import os; os.environ["PYTHON_JULIACALL_HANDLE_SIGNALS"] = "no"; import mysr',
+                "msg": "PYTHON_JULIACALL_HANDLE_SIGNALS environment variable is set",
+            },
+            {
+                "code": 'import os; os.environ["PYTHON_JULIACALL_THREADS"] = "1"; import mysr',
+                "msg": "PYTHON_JULIACALL_THREADS environment variable is set",
+            },
+            {
+                "code": "import juliacall; import mysr",
+                "msg": "juliacall module already imported.",
+            },
         ]
         for warning_test in warning_tests:
             result = subprocess.run(
                 [sys.executable, "-c", warning_test["code"]],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
                 env=os.environ,
+                check=False,
             )
             self.assertIn(warning_test["msg"], result.stderr.decode())
 
@@ -153,6 +153,7 @@ class TestStartup(unittest.TestCase):
                 str(sanitize_file),
             ],
             env=os.environ,
+            check=False,
         )
         self.assertEqual(result.returncode, 0)
 
@@ -184,15 +185,16 @@ class TestRegistryHelper(unittest.TestCase):
 
     def test_non_julia_errors_reraised(self):
         with self.assertRaises(SyntaxError) as context:
-            try_with_registry_fallback(lambda: exec("invalid syntax !@#$"))
+            try_with_registry_fallback(lambda: exec("invalid syntax !@#$"))  # noqa: S102 - intentional syntax-error probe
         self.assertNotIn("JuliaError", str(context.exception))
 
     def test_julia_error_triggers_fallback(self):
         os.environ[PREFERENCE_KEY] = "conservative"
 
-        with self.assertWarns(Warning) as warn_context:
-            with self.assertRaises(Exception) as error_context:
-                try_with_registry_fallback(self.failing_operation)
+        with self.assertWarns(Warning) as warn_context, self.assertRaises(
+            Exception
+        ) as error_context:
+            try_with_registry_fallback(self.failing_operation)
 
         self.assertIn(
             "Unsatisfiable requirements detected", str(error_context.exception)
