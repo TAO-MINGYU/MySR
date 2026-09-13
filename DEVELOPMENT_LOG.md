@@ -276,3 +276,10 @@
 - **Residual/Unknown**：测试/Notebook 中剩余 C408、SIM117、subprocess check/capture、
   BLE001/S102 等 67 条提示暂不批量修改；需要后续按测试模块逐项审查并在可写 Julia
   depot 中运行回归。
+
+## 2026-09-14 - Preserve abstract no-op semantics during lint cleanup
+
+- **Decision**：抽象方法继续使用原有 `pass`（仅局部抑制 PIE790），不以 `...` 替换，
+  从而保持潜在 `super()` 调用返回 `None` 的既有语义；提交 `e288a1e`。
+- **Verification**：相关四个配置模块 Ruff、`py_compile` 和 `git diff --check` 通过；
+  全仓 Ruff 仍为 67 条，新增提交未引入诊断。
