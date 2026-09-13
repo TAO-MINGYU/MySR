@@ -189,3 +189,9 @@
 - **Confirmed**：全量 `ruff check mysr` 报告 145 条历史问题，主要集中在旧导出器、测试辅助代码和兼容层；本轮目标文件 `feat_engine.py`、`type_specs.py` 仍保持 Ruff 通过。
 - **Decision**：不对 145 条跨模块历史提示进行自动批量修复，避免改变既有 API 或测试语义；继续采用按模块、按回归覆盖逐项治理。
 - **Unknown**：其余历史 lint 项需要独立的分模块清理计划。
+
+## 2026-09-13 - Canonical backend integration bridge verification
+
+- **Confirmed**：临时 Julia project 指向 canonical MySRCore 集成分支，前端量纲/RNN-GPSR
+  测试 `62 passed`（33.65s）；`compileall` 与目标文件 Ruff 通过。
+- **Unknown**：本轮未修改 Python runtime；Python 全量 145 条历史 lint 提示仍按模块治理。
