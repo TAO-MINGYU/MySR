@@ -289,3 +289,21 @@
 - **Confirmed**：cluster manager 在任何 Julia optional package 操作前执行白名单校验；Slurm 路径不会隐式加载 turbo/LoopVectorization。非法名称和 package-call 顺序回归测试通过。
 - **Verification**：Ruff production-only 通过；compileall 和 diff-check 通过；cluster manager focused tests `3 passed`。
 - **Environment limitation**：真实 Slurm/Docker 测试仍需要缺失的 Docker fixture、可写 Julia depot 和完整 optional registry，未将环境阻断报告为源码失败。
+
+## 2026-09-14 - Full test and notebook Ruff cleanup
+
+- **Confirmed**：`ruff check mysr` 的 67 条剩余诊断全部位于测试/Notebook；采用字面量、
+  `capture_output`/显式 `check=False`、多上下文 `with`、集合字面量和导入清理等语义等价
+  修改，故意的 broad-exception/`exec` 测试保留局部、有原因的 noqa。
+- **Decision**：不触碰生产运行语义，也不删除用户未跟踪的 `outputs/` 或 `worktrees/`。
+  修改提交为 `643731f`。
+- **Verification**：Ruff 全仓报告 `All checks passed`；`python -m compileall -q mysr/test`
+  和 `git diff --check` 通过。目标 pytest 收集阶段受 `env_mysr` Julia 编译缓存目录只读
+  （EROFS）阻断，未伪造为测试通过。
+- **Residual/Unknown**：待在可写、依赖完整的 Julia depot 中重跑受影响的 Python 测试。
+
+## 2026-09-14 - Full Ruff cleanup completed
+
+- **Confirmed**：剩余测试/Notebook Ruff 诊断已按语义等价方式清理，`ruff check mysr` 现在 0 diagnostics；未使用 unsafe fix 改变运行逻辑。
+- **Verification**：`python -m compileall -q mysr`、`git diff --check` 通过；提交 `643731f`。
+- **Unknown**：pytest 仍需可写 Julia depot 才能完成完整 collection，环境 EROFS 不构成源码断言失败。
