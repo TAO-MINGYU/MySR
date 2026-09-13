@@ -257,3 +257,22 @@
   depot 的只读编译缓存/registry 状态限制，未伪造为通过。
 - **Residual/Unknown**：真实 Slurm allocation 仍需在已安装 `SlurmClusterManager` 的 Julia
   project 中验证；缺失 optional package 属于环境准备问题，不由该校验修复。
+
+## 2026-09-14 - Python Ruff implementation and test debt cleanup
+
+- **Confirmed**：对 `mysr/` 执行 Ruff 0.16.3 全仓扫描，基线 141 条诊断；生产源码中的
+  低风险规则已按模块修复，包括动态导出器初始化缓存、可变默认参数、桥接导入、约束
+  类型注解、checkpoint 临时文件清理和回归器中的安全等价重写。修改提交为 `40ee006`
+  和 `86ac5fd`。
+- **Decision**：保留 `ValueError` 等既有公开异常类型，无法安全替换的动态 `exec` 与
+  checkpoint broad exception 采用有理由的局部 noqa；不使用 unsafe Ruff 自动修复，避免
+  改变测试或用户接口语义。
+- **Confirmed**：测试目录仅应用字面量、导入排序、字符串列选择和 `readlines()` 等安全
+  等价清理，提交 `ac08ead`；全仓 Ruff 降至 67 条，剩余全部位于测试/Notebook，不再
+  包含生产 `mysr/` 源码诊断。
+- **Verification**：生产目标文件和 `sr.py` Ruff 通过；`python -m py_compile mysr/sr.py`、
+  `python -m compileall -q mysr/test`、`git diff --check` 通过。pytest 仍被
+  `env_mysr` Julia depot 的只读编译缓存（EROFS）阻断，未将其记录为源码测试通过。
+- **Residual/Unknown**：测试/Notebook 中剩余 C408、SIM117、subprocess check/capture、
+  BLE001/S102 等 67 条提示暂不批量修改；需要后续按测试模块逐项审查并在可写 Julia
+  depot 中运行回归。
