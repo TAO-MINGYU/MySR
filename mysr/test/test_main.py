@@ -38,6 +38,7 @@ from mysr import (
 from mysr.export_latex import sympy2latex
 from mysr.export_sympy import mysr2sympy
 from mysr.feature_selection import _handle_feature_selection, run_feature_selection
+from mysr.julia_extensions import load_required_packages
 from mysr.julia_helpers import _load_cluster_manager, init_julia, jl_is_function
 from mysr.sr import (
     _check_assertions,
@@ -2128,6 +2129,23 @@ class TestMiscellaneous(unittest.TestCase):
     def test_cluster_manager_rejects_untrusted_name(self):
         with self.assertRaisesRegex(ValueError, "Unsupported cluster_manager"):
             _load_cluster_manager("slurm; evil()")
+
+    def test_cluster_manager_is_validated_before_package_loading(self):
+        """Reject invalid names without touching the Julia package registry."""
+        with mock.patch("mysr.julia_extensions.load_package") as load_package:
+            with self.assertRaisesRegex(ValueError, "Unsupported cluster_manager"):
+                load_required_packages(cluster_manager="slurm; evil()")
+        load_package.assert_not_called()
+
+    def test_slurm_package_loading_does_not_require_turbo_extension(self):
+        """Loading Slurm must not implicitly request LoopVectorization."""
+        with mock.patch("mysr.julia_extensions.load_package") as load_package:
+            load_required_packages(cluster_manager="slurm")
+
+        self.assertEqual(
+            load_package.call_args_list,
+            [mock.call("SlurmClusterManager", "c82cd089-7bf7-41d7-976b-6b5d413cbe0a")],
+        )
 
     def test_batching_auto(self):
         """Test that batching configuration is passed to SymbolicRegression.jl."""

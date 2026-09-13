@@ -243,3 +243,17 @@
 - **Confirmed**：RNN-GPSR 配置和请求边界、prefix token 合法性、replay 去重均已加固；cluster manager 仅接受受支持名称；pytest 限定 canonical 测试路径，开发 Docker/README 与 MySRCore 1.1.3 对齐。
 - **Verification**：RNN-GPSR `54 passed`；目标源文件 Ruff、compileall、`git diff --check` 通过。
 - **Unknown**：全仓 Ruff 历史 debt 尚未清理；完整跨语言测试需可写且依赖齐全的 Julia depot。
+
+## 2026-09-14 - Cluster-manager validation before optional package loading
+
+- 变更类型：Julia bridge 配置校验与测试隔离。
+- **Confirmed**：此前 `load_required_packages` 会在 `_load_cluster_manager` 校验前尝试安装
+  `ClusterManagers`；错误的 manager 名称因此可能先触发无关 registry 操作并遮蔽配置错误。
+- **Decision**：新增 `_validate_cluster_manager`，在所有 package 操作前复用白名单校验；Slurm
+  manager 的显式 package 请求不会隐式加载 `LoopVectorization`/turbo 扩展。
+- 修改路径：`mysr/julia_helpers.py`、`mysr/julia_extensions.py`、`mysr/test/test_main.py`。
+- **Verification**：目标 bridge 文件 Ruff、compileall、`git diff --check` 通过；新增测试覆盖无效
+  manager 的零 package 调用和 Slurm package 请求集合。完整 Julia 集成测试受当前 env_mysr
+  depot 的只读编译缓存/registry 状态限制，未伪造为通过。
+- **Residual/Unknown**：真实 Slurm allocation 仍需在已安装 `SlurmClusterManager` 的 Julia
+  project 中验证；缺失 optional package 属于环境准备问题，不由该校验修复。

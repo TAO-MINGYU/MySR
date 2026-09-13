@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
+from .julia_helpers import _validate_cluster_manager
 from .julia_import import Pkg, jl
 from .julia_registry_helpers import try_with_registry_fallback
 from .logger_specs import AbstractLoggerSpec, TensorBoardLoggerSpec
@@ -17,6 +18,11 @@ def load_required_packages(
     cluster_manager: str | None = None,
     logger_spec: AbstractLoggerSpec | None = None,
 ):
+    # Validate before installing any optional package.  In particular, an
+    # invalid cluster-manager string must not cause a registry operation for
+    # ``ClusterManagers`` before _load_cluster_manager reports the typo.
+    if cluster_manager is not None:
+        _validate_cluster_manager(cluster_manager)
     if turbo:
         load_package("LoopVectorization", "bdcacae8-1622-11e9-2a5c-532679323890")
     if bumper:

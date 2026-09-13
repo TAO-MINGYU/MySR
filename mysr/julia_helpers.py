@@ -38,6 +38,22 @@ jl.seval("using MySRCore.SymbolicRegression: plus, sub, mult, div, pow")
 _JL_IS_FUNCTION = cast(Callable[[Any], bool], jl.seval("op -> op isa Function"))
 
 
+def _validate_cluster_manager(cluster_manager: str) -> str:
+    """Validate and return a cluster-manager name before touching Julia Pkg.
+
+    Package loading happens before the Julia ``addprocs_*`` function is resolved.
+    Keeping this check in the bridge prevents a typo (or an injected Julia
+    expression) from triggering an unrelated ``ClusterManagers`` installation
+    first, which otherwise obscures the actual configuration error.
+    """
+    if cluster_manager not in _CLUSTER_MANAGERS:
+        allowed = ", ".join(sorted(_CLUSTER_MANAGERS))
+        raise ValueError(
+            f"Unsupported cluster_manager {cluster_manager!r}; expected one of: {allowed}"
+        )
+    return cluster_manager
+
+
 def _escape_filename(filename):
     """Turn a path into a string with correctly escaped backslashes."""
     if filename is None:
@@ -48,11 +64,7 @@ def _escape_filename(filename):
 
 
 def _load_cluster_manager(cluster_manager: str):
-    if cluster_manager not in _CLUSTER_MANAGERS:
-        allowed = ", ".join(sorted(_CLUSTER_MANAGERS))
-        raise ValueError(
-            f"Unsupported cluster_manager {cluster_manager!r}; expected one of: {allowed}"
-        )
+    _validate_cluster_manager(cluster_manager)
     if cluster_manager == "slurm":
         jl.seval("using Distributed: addprocs")
         jl.seval("using SlurmClusterManager: SlurmManager")
