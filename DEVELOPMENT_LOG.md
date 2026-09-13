@@ -283,3 +283,9 @@
   从而保持潜在 `super()` 调用返回 `None` 的既有语义；提交 `e288a1e`。
 - **Verification**：相关四个配置模块 Ruff、`py_compile` 和 `git diff --check` 通过；
   全仓 Ruff 仍为 67 条，新增提交未引入诊断。
+## 2026-09-14 - Ruff and cluster-manager hardening
+
+- **Confirmed**：生产 `mysr/` 源码 Ruff 诊断从 141 降为 0；剩余 67 条位于测试/Notebook，避免以 unsafe fix 改变测试语义。
+- **Confirmed**：cluster manager 在任何 Julia optional package 操作前执行白名单校验；Slurm 路径不会隐式加载 turbo/LoopVectorization。非法名称和 package-call 顺序回归测试通过。
+- **Verification**：Ruff production-only 通过；compileall 和 diff-check 通过；cluster manager focused tests `3 passed`。
+- **Environment limitation**：真实 Slurm/Docker 测试仍需要缺失的 Docker fixture、可写 Julia depot 和完整 optional registry，未将环境阻断报告为源码失败。
