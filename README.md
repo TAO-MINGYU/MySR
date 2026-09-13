@@ -42,7 +42,7 @@ The Python frontend is backed by [MySRCore.jl](https://github.com/TAO-MINGYU/MyS
 Install the current released package directly from GitHub:
 
 ```bash
-python -m pip install "git+https://github.com/TAO-MINGYU/MySR.git@v1.1.0"
+python -m pip install "git+https://github.com/TAO-MINGYU/MySR.git@v1.1.3"
 ```
 
 Julia dependencies are resolved automatically through JuliaPkg on first import. The released configuration pins the compatible `MySRCore.jl` version, so users do not need to check out the Julia repository separately.
@@ -92,7 +92,7 @@ After fitting, `model.equations_` exposes the discovered equation frontier, whil
 | Initialization | User `guesses` plus optional RNN-GPSR proposals before the formal MySRCore search. |
 | Export | Callable, SymPy, NumPy, JAX, and PyTorch representations where supported by the configured expression. |
 
-The extension layers are opt-in. With their defaults, existing preprocessing and search behavior is not changed by enabling MySR 1.1.0.
+The extension layers are opt-in. With their defaults, existing preprocessing and search behavior is not changed by enabling MySR 1.1.3.
 
 ### Formula types and dimensions
 
@@ -179,7 +179,7 @@ The matched PySR/MySR benchmark suite lives in the independent [Benchmark_mysr](
 
 ## Status
 
-MySR 1.1.0 is research software under active development. The core package and released MySRCore backend are usable; new feature-engineering and RNN-GPSR paths remain opt-in and should be evaluated against the intended dataset and search budget before being used for scientific conclusions.
+MySR 1.1.3 is research software under active development. The core package and released MySRCore backend are usable; new feature-engineering and RNN-GPSR paths remain opt-in and should be evaluated against the intended dataset and search budget before being used for scientific conclusions.
 
 ## License
 

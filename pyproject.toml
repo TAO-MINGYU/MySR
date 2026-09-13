@@ -67,6 +67,10 @@ dev = [
 [tool.isort]
 profile = "black"
 
+[tool.pytest.ini_options]
+testpaths = ["mysr/test"]
+norecursedirs = ["worktrees", "outputs", ".git"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["mysr"]
 

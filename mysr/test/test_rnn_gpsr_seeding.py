@@ -128,6 +128,33 @@ def test_rnn_formula_type_contract_rejects_unknown_policy() -> None:
         _normalize_formula_type("invalid")
 
 
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"epochs": 0},
+        {"patience": 0},
+        {"cell": "typo"},
+        {"hidden_size": 0},
+        {"learning_rate": 0.0},
+        {"validation_fraction": 1.0},
+        {"top_fraction": 0.0},
+    ],
+)
+def test_torch_rnn_config_rejects_invalid_training_parameters(kwargs):
+    with pytest.raises(ValueError):
+        TorchRNNConfig(**kwargs)
+
+
+def test_torch_rnn_generator_rejects_non_positive_sampling_request():
+    pytest.importorskip("torch")
+    generator = TorchRNNGenerator(TorchRNNConfig(epochs=1, patience=1))
+    sequences = [[1], [2], [3, 1], [3, 2], [3, 1], [3, 2], [1], [2]]
+    for proposal_count, max_length in [(0, 4), (1, 0)]:
+        with pytest.raises(ValueError):
+            generator(sequences, [float(i) for i in range(8)], [0, 0, 2],
+                      proposal_count, max_length, 1)
+
+
 def test_formula_type_changes_recurrent_policy_input_token() -> None:
     tokens = [
         _formula_type_bos_token(10, value)

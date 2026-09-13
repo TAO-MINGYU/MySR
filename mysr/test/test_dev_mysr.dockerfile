@@ -1,6 +1,5 @@
 # This dockerfile simulates a user installation that
-# tries to manually edit SymbolicRegression.jl and
-# use it from MySR.
+# manually edits the MySRCore backend and uses it from MySR.
 
 ARG JLVERSION=1.11
 ARG PYVERSION=3.12
@@ -30,26 +29,25 @@ ADD ./mysr/_cli/*.py /mysr/mysr/_cli/
 
 RUN mkdir /mysr/mysr/test
 
-# Now, we create a custom version of SymbolicRegression.jl
+# Now, we create a custom version of MySRCore.
 # First, we get the version or rev from juliapkg.json:
-RUN python3 -c 'import json; pkg = json.load(open("/mysr/mysr/juliapkg.json", "r"))["packages"]["SymbolicRegression"]; print(pkg.get("version", pkg.get("rev", "")))' > /mysr/sr_version
+RUN python3 -c 'import json; pkg = json.load(open("/mysr/mysr/juliapkg.json", "r"))["packages"]["MySRCore"]; print(pkg.get("version", pkg.get("rev", "")))' > /mysr/sr_version
 
 # Remove any = or ^ or ~ from the version:
 RUN cat /mysr/sr_version | sed 's/[\^=~]//g' > /mysr/sr_version_processed
 
-# Now, we check out the version of SymbolicRegression.jl that MySR is using:
+# Now, we check out the version of MySRCore.jl that MySR is using:
 # If sr_version starts with 'v', use it as-is; otherwise prepend 'v'
 RUN if grep -q '^v' /mysr/sr_version_processed; then \
-        git clone -b "$(cat /mysr/sr_version_processed)" --single-branch https://github.com/astroautomata/SymbolicRegression.jl /srjl; \
+        git clone -b "$(cat /mysr/sr_version_processed)" --single-branch https://github.com/TAO-MINGYU/MySRCore.jl /srjl; \
     else \
-        git clone -b "v$(cat /mysr/sr_version_processed)" --single-branch https://github.com/astroautomata/SymbolicRegression.jl /srjl; \
+        git clone -b "v$(cat /mysr/sr_version_processed)" --single-branch https://github.com/TAO-MINGYU/MySRCore.jl /srjl; \
     fi
 
-# Edit SymbolicRegression.jl to create a new function.
-# We want to put this function immediately after `module SymbolicRegression`:
+# Edit the retained SymbolicRegression module to create a new function:
 RUN sed -i 's/module SymbolicRegression/module SymbolicRegression\n__test_function() = 2.3/' /srjl/src/SymbolicRegression.jl
 
-# Edit MySR to use the custom version of SymbolicRegression.jl:
+# Edit MySR to use the custom version of MySRCore.jl:
 ADD ./mysr/test/generate_dev_juliapkg.py /generate_dev_juliapkg.py
 RUN python3 /generate_dev_juliapkg.py /mysr/mysr/juliapkg.json /srjl
 

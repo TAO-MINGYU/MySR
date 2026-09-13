@@ -2125,6 +2125,10 @@ class TestMiscellaneous(unittest.TestCase):
             with self.assertRaisesRegex(JuliaError, "allocation has 2 tasks"):
                 _load_cluster_manager("slurm")(1)
 
+    def test_cluster_manager_rejects_untrusted_name(self):
+        with self.assertRaisesRegex(ValueError, "Unsupported cluster_manager"):
+            _load_cluster_manager("slurm; evil()")
+
     def test_batching_auto(self):
         """Test that batching configuration is passed to SymbolicRegression.jl."""
         model = MySRRegressor()

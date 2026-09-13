@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 import numpy as np
 
@@ -57,6 +57,59 @@ class TorchRNNConfig:
     sampling_top_p: float = 1.0
     replay_fraction: float = 0.25
 
+    def __post_init__(self) -> None:
+        """Reject configurations that would produce invalid/empty training runs."""
+
+        if self.cell not in {"lstm", "gru"}:
+            raise ValueError("RNN-GPSR cell must be 'lstm' or 'gru'")
+        for name in ("hidden_size", "embedding_size", "num_layers"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError(f"RNN-GPSR {name} must be positive")
+        for name in ("epochs", "patience"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError(f"RNN-GPSR {name} must be positive")
+        if self.learning_rate <= 0 or not np.isfinite(self.learning_rate):
+            raise ValueError("RNN-GPSR learning_rate must be finite and positive")
+        if self.weight_decay < 0 or not np.isfinite(self.weight_decay):
+            raise ValueError("RNN-GPSR weight_decay must be finite and non-negative")
+        if not 0 < self.validation_fraction < 1:
+            raise ValueError("RNN-GPSR validation_fraction must be in (0, 1)")
+        if not 0 < self.top_fraction <= 1:
+            raise ValueError("RNN-GPSR top_fraction must be in (0, 1]")
+        if not -1 <= self.min_validation_spearman <= 1:
+            raise ValueError("RNN-GPSR min_validation_spearman must be in [-1, 1]")
+        for name in (
+            "entropy_weight",
+            "rank_loss_weight",
+            "elite_supervision_weight",
+            "diversity_weight",
+            "length_penalty",
+            "sampling_temperature",
+            "sampling_top_p",
+            "replay_fraction",
+        ):
+            if not np.isfinite(getattr(self, name)):
+                raise ValueError(f"RNN-GPSR {name} must be finite")
+        for name in (
+            "entropy_weight",
+            "rank_loss_weight",
+            "elite_supervision_weight",
+            "diversity_weight",
+            "length_penalty",
+        ):
+            if getattr(self, name) < 0:
+                raise ValueError(f"RNN-GPSR {name} must be non-negative")
+        if not 0 < self.sampling_temperature or not np.isfinite(self.sampling_temperature):
+            raise ValueError("RNN-GPSR sampling_temperature must be finite and positive")
+        if not 0 < self.sampling_top_p <= 1:
+            raise ValueError("RNN-GPSR sampling_top_p must be in (0, 1]")
+        if not 0 <= self.replay_fraction <= 1:
+            raise ValueError("RNN-GPSR replay_fraction must be in [0, 1]")
+        if not isinstance(self.sampling_top_k, int) or self.sampling_top_k < 0:
+            raise ValueError("RNN-GPSR sampling_top_k must be a non-negative integer")
+
 
 def ensure_torch_available() -> Any:
     """Import PyTorch lazily and provide an actionable optional-dependency error."""
@@ -78,6 +131,26 @@ def _as_sequences(values: Iterable[Iterable[Any]]) -> list[list[int]]:
     if any(token <= 0 for sequence in sequences for token in sequence):
         raise ValueError("RNN-GPSR tokens must be positive; zero is reserved for padding")
     return sequences
+
+
+def _validate_sequences(
+    sequences: Sequence[Sequence[int]], arities: Sequence[int], max_length: int
+) -> None:
+    """Validate prefix-encoded trees before constructing teacher-forced batches."""
+
+    for sequence in sequences:
+        if len(sequence) > max_length:
+            raise ValueError("RNN-GPSR max_length must cover every training expression")
+        dangling = 1
+        for position, token in enumerate(sequence):
+            if token < 1 or token > len(arities):
+                raise ValueError("RNN-GPSR training data contains an unknown token")
+            dangling += int(arities[token - 1]) - 1
+            if dangling <= 0 and position != len(sequence) - 1:
+                raise ValueError("RNN-GPSR training sequences must be valid prefix trees")
+        # Training corpora may intentionally contain truncated prefixes (the
+        # backend can complete them during proposal seeding); only reject a
+        # sequence that closes before its final token.
 
 
 def _rank_targets(costs: np.ndarray) -> np.ndarray:
@@ -181,7 +254,7 @@ def _grammar_token_mask(
     arities: Sequence[int],
     max_length: int,
     device: Any,
-    mask_length: Optional[int] = None,
+    mask_length: int | None = None,
 ):
     """Build per-prefix legality masks for teacher-forced RNN training.
 
@@ -570,18 +643,17 @@ class TorchRNNGenerator:
         arities = [int(arity) for arity in token_arities]
         requested_count = int(proposal_count)
         maximum_length = int(max_length)
+        if requested_count <= 0:
+            raise ValueError("RNN-GPSR proposal_count must be positive")
+        if maximum_length <= 0:
+            raise ValueError("RNN-GPSR max_length must be positive")
         if len(sequences) != len(costs):
             raise ValueError("RNN-GPSR training sequences and costs have different lengths")
         if len(sequences) < 8:
             raise ValueError("PyTorch RNN-GPSR requires at least eight training expressions")
-        if any(len(sequence) > maximum_length for sequence in sequences):
-            raise ValueError(
-                "RNN-GPSR max_length must cover every training expression"
-            )
         if not arities or any(arity < 0 for arity in arities):
             raise ValueError("RNN-GPSR token arities must be non-negative")
-        if max(token for sequence in sequences for token in sequence) > len(arities):
-            raise ValueError("RNN-GPSR training data contains an unknown token")
+        _validate_sequences(sequences, arities, maximum_length)
 
         seed_value = int(seed) % (2**31 - 1)
         quality_targets = _rank_targets(costs)
@@ -804,6 +876,10 @@ class TorchRNNGenerator:
                     if tuple(sequence) not in replay_keys
                 ]
                 generated = generated[:requested_count]
+                # The replay prefix is now part of the returned population.  Mark
+                # it as seen before fallback filling, otherwise a replayed elite
+                # can be appended a second time when sampling under-fills.
+                seen.update(replay_keys)
             if len(generated) < requested_count:
                 for index in _rank_replay_indices(costs, sequences):
                     if len(generated) >= requested_count:

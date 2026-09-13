@@ -9,6 +9,8 @@ from numpy.typing import NDArray
 from .deprecated import init_julia, install
 from .julia_import import AnyValue, jl
 
+_CLUSTER_MANAGERS = {"slurm", "pbs", "lsf", "sge", "qrsh", "scyld", "htc"}
+
 __all__ = [
     "init_julia",
     "install",
@@ -46,6 +48,11 @@ def _escape_filename(filename):
 
 
 def _load_cluster_manager(cluster_manager: str):
+    if cluster_manager not in _CLUSTER_MANAGERS:
+        allowed = ", ".join(sorted(_CLUSTER_MANAGERS))
+        raise ValueError(
+            f"Unsupported cluster_manager {cluster_manager!r}; expected one of: {allowed}"
+        )
     if cluster_manager == "slurm":
         jl.seval("using Distributed: addprocs")
         jl.seval("using SlurmClusterManager: SlurmManager")
