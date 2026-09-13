@@ -195,3 +195,17 @@
 - **Confirmed**：临时 Julia project 指向 canonical MySRCore 集成分支，前端量纲/RNN-GPSR
   测试 `62 passed`（33.65s）；`compileall` 与目标文件 Ruff 通过。
 - **Unknown**：本轮未修改 Python runtime；Python 全量 145 条历史 lint 提示仍按模块治理。
+
+## 2026-09-13 - Cache Julia function predicate in Python bridge
+
+- **Confirmed**：`mysr/julia_helpers.py` 现在在模块初始化期间只通过一次 `jl.seval` 创建
+  `_JL_IS_FUNCTION`，后续 `jl_is_function` 调用复用该 Julia closure；公共函数签名和返回
+  语义保持不变。
+- **Decision**：本轮仅优化无状态函数谓词的重复桥接开销；`julia_state_`/
+  `julia_options_` 反序列化缓存仍作为 Proposal，待设计显式失效契约后单独处理。
+- **修改路径**：`mysr/julia_helpers.py`、`mysr/test/test_main.py`；提交 `336f85b`。
+- **Verification**：在 `env_mysr`（临时可写 depot 加环境 depot）下新增回归
+  `pytest -q mysr/test/test_main.py -k jl_is_function_uses_cached_predicate`，结果
+  `1 passed, 175 deselected`；`compileall` 与 `git diff --check` 通过。
+- **Residual/Unknown**：目标测试文件仍含既有 Ruff 历史提示；未进行大规模 benchmark，
+  因此尚无端到端吞吐提升量化证据。
