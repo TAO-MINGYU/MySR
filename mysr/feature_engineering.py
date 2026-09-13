@@ -13,6 +13,7 @@ implementation at https://github.com/SJ001/AI-Feynman.
 from __future__ import annotations
 
 import re
+import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from itertools import combinations
@@ -21,6 +22,7 @@ from typing import Any, Literal, cast
 import numpy as np
 from numpy.typing import NDArray
 from scipy.optimize import minimize_scalar  # type: ignore
+from sklearn.exceptions import ConvergenceWarning  # type: ignore
 from sklearn.inspection import permutation_importance  # type: ignore
 from sklearn.metrics import r2_score  # type: ignore
 from sklearn.model_selection import train_test_split  # type: ignore
@@ -1125,7 +1127,7 @@ class SurrogateFeatureEngineer:
             raise ValueError("y must contain only finite values")
         return values
 
-    def _make_surrogate(self, seed: int) -> Pipeline:
+    def _make_surrogate(self, seed: int, *, max_iter: int | None = None) -> Pipeline:
         return Pipeline(
             [
                 ("scale", StandardScaler()),
@@ -1133,7 +1135,7 @@ class SurrogateFeatureEngineer:
                     "mlp",
                     MLPRegressor(
                         hidden_layer_sizes=self.config.hidden_layer_sizes,
-                        max_iter=self.config.max_iter,
+                        max_iter=self.config.max_iter if max_iter is None else max_iter,
                         early_stopping=True,
                         validation_fraction=0.15,
                         n_iter_no_change=30,
@@ -1142,6 +1144,39 @@ class SurrogateFeatureEngineer:
                 ),
             ]
         )
+
+    def _fit_surrogate(
+        self,
+        values: NDArray[np.float64],
+        target: NDArray[np.float64],
+        seed: int,
+    ) -> Pipeline:
+        """Fit a surrogate, extending the iteration budget on non-convergence.
+
+        Small AFE smoke datasets can legitimately need more Adam iterations than
+        the user-facing first-pass budget.  Retry once with a bounded doubled
+        budget instead of leaking a ``ConvergenceWarning`` or silently accepting
+        an under-trained surrogate.  The retry uses the same seed, so successful
+        runs remain deterministic.
+        """
+        initial_budget = int(self.config.max_iter)
+        retry_budget = min(max(initial_budget * 2, initial_budget + 100), 4000)
+        budgets = (initial_budget,) if retry_budget <= initial_budget else (
+            initial_budget,
+            retry_budget,
+        )
+        for attempt, budget in enumerate(budgets):
+            model = self._make_surrogate(seed, max_iter=budget)
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always", ConvergenceWarning)
+                model.fit(values, target)
+            converged = not any(
+                isinstance(item.message, ConvergenceWarning) for item in caught
+            )
+            if converged or attempt == len(budgets) - 1:
+                self._last_surrogate_retry_count = attempt
+                return model
+        raise RuntimeError("surrogate fitting exhausted without returning a model")
 
     @staticmethod
     def _pair_directions(
@@ -2593,6 +2628,7 @@ class SurrogateFeatureEngineer:
         self.parameter_search_report_ = []
         self.composition_search_layers_ = []
         if not self.config.enabled:
+            self.surrogate_convergence_retries_ = ()
             self.proposals_: list[FeatureProposal] = []
             self.accepted_proposals_: list[FeatureProposal] = []
             self.decomposition_proposals_: list[DecompositionProposal] = []
@@ -2635,10 +2671,11 @@ class SurrogateFeatureEngineer:
         model_validation_predictions: list[NDArray[np.float64]] = []
         model_validation_r2: list[float] = []
         model_seeds: list[int] = []
+        convergence_retries: list[int] = []
         for model_index in range(self.config.surrogate_ensemble_size):
             model_seed = seed + 7919 * model_index
-            model = self._make_surrogate(model_seed)
-            model.fit(values[train], target[train])
+            model = self._fit_surrogate(values[train], target[train], model_seed)
+            convergence_retries.append(self._last_surrogate_retry_count)
             validation_prediction = np.asarray(
                 model.predict(values[validation]), dtype=float
             )
@@ -2659,6 +2696,7 @@ class SurrogateFeatureEngineer:
         self.surrogate_ = fitted_models[0]
         self.surrogate_r2_ = baseline_r2
         self.surrogate_validation_scores_ = tuple(model_validation_r2)
+        self.surrogate_convergence_retries_ = tuple(convergence_retries)
         if quality_fraction < self.config.surrogate_stability_min_fraction:
             self.proposals_ = []
             self.accepted_proposals_ = []
@@ -2676,6 +2714,7 @@ class SurrogateFeatureEngineer:
                 "surrogate_r2": baseline_r2,
                 "surrogate_validation_r2": model_validation_r2,
                 "surrogate_quality_fraction": quality_fraction,
+                "surrogate_convergence_retries": convergence_retries,
                 "candidates": [],
                 "separability": [],
             }
@@ -2825,6 +2864,7 @@ class SurrogateFeatureEngineer:
             "power_exponents": [float(value) for value in self.config.power_exponents],
             "surrogate_r2": baseline_r2,
             "surrogate_validation_r2": model_validation_r2,
+            "surrogate_convergence_retries": convergence_retries,
             "surrogate_quality_fraction": quality_fraction,
             "surrogate_ensemble_size": len(fitted_models),
             "accepted_surrogate_count": len(models),

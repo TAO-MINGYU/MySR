@@ -536,6 +536,15 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     populations : int
         Number of populations running.
         Default is `31`.
+    population_profiles : sequence of mappings
+        Optional population-specific soft search profiles. Each mapping may
+        contain `id`, `role` (for example ``"algebraic"`` or
+        ``"trigonometric"``), `operator_preference_strength`,
+        `operator_affinity`, `mutation_weights`, `crossover_weights`, and
+        `exploration_floor`. `operator_affinity` may be an arity-to-matrix
+        mapping; with ``migration_policy="best_plus_novelty"``, zero target
+        columns in an explicit matrix are treated as migration-incompatible.
+        Provide exactly one profile per population. Default is `None`.
     population_size : int
         Number of individuals in each population.
         Default is `27`.
@@ -866,6 +875,15 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         Whether to migrate.  Default is `True`.
     hof_migration : bool
         Whether to have the hall of fame migrate.  Default is `True`.
+    migration_topology : {"pooled", "ring"}
+        Migration candidate topology. ``"pooled"`` preserves the historical
+        all-population pool; ``"ring"`` sends candidates from the predecessor
+        population to the current population. Default is ``"pooled"``.
+    migration_policy : {"best_only", "best_plus_novelty"}
+        Candidate selection policy. ``"best_only"`` preserves the historical
+        best-subpopulation pool; ``"best_plus_novelty"`` keeps the lowest-cost
+        representative of each structure and applies explicit profile
+        affinity compatibility masks. Default is ``"best_only"``.
     topn : int
         How many top individuals migrate from each population.
         Default is `12`.
@@ -1223,6 +1241,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         type_spec: TypeSpec | None = None,
         niterations: int = 100,
         populations: int = 31,
+        population_profiles: Sequence[Mapping[str, Any]] | None = None,
         population_size: int = 27,
         max_evals: int | None = None,
         maxsize: int = 30,
@@ -1304,6 +1323,8 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         skip_mutation_failures: bool = True,
         migration: bool = True,
         hof_migration: bool = True,
+        migration_topology: Literal["pooled", "ring"] = "pooled",
+        migration_policy: Literal["best_only", "best_plus_novelty"] = "best_only",
         topn: int = 12,
         should_simplify: bool = True,
         should_optimize_constants: bool = True,
@@ -1382,6 +1403,39 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         self.type_spec = type_spec
         self.niterations = niterations
         self.populations = populations
+        if population_profiles is not None:
+            if isinstance(population_profiles, (str, bytes)):
+                raise TypeError("population_profiles must be a sequence of mappings")
+            if len(population_profiles) != int(populations):
+                raise ValueError(
+                    "population_profiles must contain exactly one profile per population"
+                )
+            normalized_profiles: list[dict[str, Any]] = []
+            for index, profile in enumerate(population_profiles, start=1):
+                if not isinstance(profile, Mapping):
+                    raise TypeError(
+                        f"population_profiles[{index - 1}] must be a mapping"
+                    )
+                normalized = dict(profile)
+                normalized.setdefault("id", f"population_{index}")
+                normalized.setdefault("role", "generalist")
+                unsupported = set(normalized) - {
+                    "id",
+                    "role",
+                    "operator_preference_strength",
+                    "operator_affinity",
+                    "mutation_weights",
+                    "crossover_weights",
+                    "exploration_floor",
+                }
+                if unsupported:
+                    names = ", ".join(sorted(map(str, unsupported)))
+                    raise ValueError(
+                        f"Unsupported population profile field(s): {names}"
+                    )
+                normalized_profiles.append(normalized)
+            population_profiles = normalized_profiles
+        self.population_profiles = population_profiles
         self.population_size = population_size
         self.ncycles_per_iteration = ncycles_per_iteration
         # - Equation Constraints
@@ -1452,6 +1506,14 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         # -- Migration parameters
         self.migration = migration
         self.hof_migration = hof_migration
+        if migration_topology not in {"pooled", "ring"}:
+            raise ValueError("migration_topology must be 'pooled' or 'ring'")
+        self.migration_topology = migration_topology
+        if migration_policy not in {"best_only", "best_plus_novelty"}:
+            raise ValueError(
+                "migration_policy must be 'best_only' or 'best_plus_novelty'"
+            )
+        self.migration_policy = migration_policy
         self.fraction_replaced = fraction_replaced
         self.fraction_replaced_hof = fraction_replaced_hof
         self.fraction_replaced_guesses = fraction_replaced_guesses
@@ -3240,6 +3302,64 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             )
             else {}
         )
+        population_migration_options: dict[str, Any] = {}
+        if self.population_profiles is not None:
+            julia_profiles = []
+            for profile in self.population_profiles:
+                profile_options: dict[str, Any] = {
+                    "id": jl.Symbol(str(profile["id"])),
+                    "role": jl.Symbol(str(profile["role"])),
+                }
+                for key in ("operator_preference_strength", "exploration_floor"):
+                    if key in profile:
+                        profile_options[key] = float(profile[key])
+                for key in ("mutation_weights", "crossover_weights"):
+                    if key in profile and profile[key] is not None:
+                        profile_options[key] = jl_array(
+                            np.asarray(profile[key], dtype=float).reshape(-1)
+                        )
+                if profile.get("operator_affinity") is not None:
+                    raw_affinity = profile["operator_affinity"]
+                    max_arity = max(operators.keys()) if operators else 2
+                    if isinstance(raw_affinity, Mapping):
+                        missing = [
+                            arity
+                            for arity in range(1, max_arity + 1)
+                            if arity not in raw_affinity
+                        ]
+                        if missing:
+                            raise ValueError(
+                                "Each population operator_affinity mapping must provide "
+                                f"all arities; missing {missing}"
+                            )
+                        matrices = [
+                            raw_affinity[arity] for arity in range(1, max_arity + 1)
+                        ]
+                    else:
+                        matrices = list(raw_affinity)
+                    if len(matrices) != max_arity:
+                        raise ValueError(
+                            "Each population operator_affinity must contain one matrix per arity"
+                        )
+                    matrix_vector = jl.seval(
+                        "(xs...) -> Matrix{Float64}[Matrix{Float64}(x) for x in xs]"
+                    )
+                    profile_options["operator_affinity"] = matrix_vector(
+                        *[
+                            jl_array(np.asarray(matrix, dtype=float))
+                            for matrix in matrices
+                        ]
+                    )
+                julia_profiles.append(SymbolicRegression.IslandProfile(**profile_options))
+            population_migration_options["population_profiles"] = jl_array(julia_profiles)
+        if self.migration_topology != "pooled":
+            population_migration_options["migration_topology"] = jl.Symbol(
+                self.migration_topology
+            )
+        if self.migration_policy != "best_only":
+            population_migration_options["migration_policy"] = jl.Symbol(
+                self.migration_policy
+            )
         # ``rnn_generator`` is created after the options object below because it
         # owns the Python-side PyTorch policy.  Keep this group empty until that
         # callback has been constructed, then populate it immediately before
@@ -3319,6 +3439,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             define_helper_functions=False,
             **backend_formula_options,
             **mutation_affinity_options,
+            **population_migration_options,
             **rnn_gpsr_options,
         )
 
