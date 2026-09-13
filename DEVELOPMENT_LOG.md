@@ -196,3 +196,45 @@
 - **Decision**：将已验证的 bridge cache 集成分支合并到本地工作分支 `feature/local-mysr-merge-20260913`，不直接修改 `main`；备份分支为 `backup/pre-local-mysr-merge-20260913`。
 - **Confirmed**：合并提交 `ac36a0b` 仅包含 `jl_is_function` predicate cache、对应回归测试和日志记录。
 - **Verification**：`env_mysr` + 可写临时 depot 下 bridge 单测 `1 passed`，量纲/RNN 聚焦套件 `62 passed`，`compileall` 与 `git diff --check` 通过；仅保留既有线程/sklearn 警告。
+## 2026-09-12 - Merge canonical local frontend into crossover worktree
+
+- **Decision**：以 canonical MySR `main` 为前端代码主线完成合并；worktree 中没有需要独立保留的
+  代码分支，最终 `feat_engine.py` 与 `type_specs.py` 与 canonical 主线一致。
+- **Confirmed**：合并提交为 `7d76fc8`，未留下源码冲突或相对 canonical 的代码差异。
+- **Verification**：使用 env_mysr、临时 Julia bridge 指向合并后的 MySRCore worktree，量纲/RNN
+  聚焦测试 `62 passed`；`compileall` 与 Ruff 检查通过。
+- **Unknown**：未运行大规模搜索或 benchmark；既有线程配置和 sklearn 收敛警告仍存在。
+
+## 2026-09-12 - Three basic test rounds completed
+
+- **Confirmed**：第三轮临时 Julia bridge 明确加载
+  `/home/taomingyu/MySR_Dev/worktrees/crossover-optimization` backend，量纲/RNN
+  聚焦测试 `62 passed`（94.39s）。
+- **Verification**：`python -m compileall -q mysr` 与目标文件 Ruff 均通过；未发现跨仓库接口 BUG。
+- **Unknown**：线程配置与 sklearn 收敛警告仍为既有环境/训练提示，未归因于本次合并。
+
+## 2026-09-12 - Full static quality scan
+
+- **Confirmed**：全量 `ruff check mysr` 报告 145 条历史问题，主要集中在旧导出器、测试辅助代码和兼容层；本轮目标文件 `feat_engine.py`、`type_specs.py` 仍保持 Ruff 通过。
+- **Decision**：不对 145 条跨模块历史提示进行自动批量修复，避免改变既有 API 或测试语义；继续采用按模块、按回归覆盖逐项治理。
+- **Unknown**：其余历史 lint 项需要独立的分模块清理计划。
+
+## 2026-09-13 - Canonical backend integration bridge verification
+
+- **Confirmed**：临时 Julia project 指向 canonical MySRCore 集成分支，前端量纲/RNN-GPSR
+  测试 `62 passed`（33.65s）；`compileall` 与目标文件 Ruff 通过。
+- **Unknown**：本轮未修改 Python runtime；Python 全量 145 条历史 lint 提示仍按模块治理。
+
+## 2026-09-13 - Cache Julia function predicate in Python bridge
+
+- **Confirmed**：`mysr/julia_helpers.py` 现在在模块初始化期间只通过一次 `jl.seval` 创建
+  `_JL_IS_FUNCTION`，后续 `jl_is_function` 调用复用该 Julia closure；公共函数签名和返回
+  语义保持不变。
+- **Decision**：本轮仅优化无状态函数谓词的重复桥接开销；`julia_state_`/
+  `julia_options_` 反序列化缓存仍作为 Proposal，待设计显式失效契约后单独处理。
+- **修改路径**：`mysr/julia_helpers.py`、`mysr/test/test_main.py`；提交 `336f85b`。
+- **Verification**：在 `env_mysr`（临时可写 depot 加环境 depot）下新增回归
+  `pytest -q mysr/test/test_main.py -k jl_is_function_uses_cached_predicate`，结果
+  `1 passed, 175 deselected`；`compileall` 与 `git diff --check` 通过。
+- **Residual/Unknown**：目标测试文件仍含既有 Ruff 历史提示；未进行大规模 benchmark，
+  因此尚无端到端吞吐提升量化证据。
