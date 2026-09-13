@@ -238,3 +238,8 @@
   `1 passed, 175 deselected`；`compileall` 与 `git diff --check` 通过。
 - **Residual/Unknown**：目标测试文件仍含既有 Ruff 历史提示；未进行大规模 benchmark，
   因此尚无端到端吞吐提升量化证据。
+## 2026-09-13 - Multi-agent Python quality audit
+
+- **Confirmed**：RNN-GPSR 配置和请求边界、prefix token 合法性、replay 去重均已加固；cluster manager 仅接受受支持名称；pytest 限定 canonical 测试路径，开发 Docker/README 与 MySRCore 1.1.3 对齐。
+- **Verification**：RNN-GPSR `54 passed`；目标源文件 Ruff、compileall、`git diff --check` 通过。
+- **Unknown**：全仓 Ruff 历史 debt 尚未清理；完整跨语言测试需可写且依赖齐全的 Julia depot。
