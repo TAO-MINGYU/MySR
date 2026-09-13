@@ -67,4 +67,3 @@ def load_package(package_name: str, uuid_s: str) -> None:
     # TODO: Protect against loading the same symbol from two packages,
     #       maybe with a @gensym here.
     jl.seval(f"using {package_name}: {package_name}")
-    return None

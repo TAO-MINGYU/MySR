@@ -27,9 +27,9 @@ def sympy2latex(expr, prec=3, full_prec=True, **settings) -> str:
     return str(printer.doprint(expr))
 
 
-def generate_table_environment(
-    columns: list[str] = ["equation", "complexity", "loss"]
-) -> tuple[str, str]:
+def generate_table_environment(columns: list[str] | None = None) -> tuple[str, str]:
+    if columns is None:
+        columns = ["equation", "complexity", "loss"]
     margins = "c" * len(columns)
     column_map = {
         "complexity": "Complexity",
@@ -63,12 +63,14 @@ def sympy2latextable(
     equations: pd.DataFrame,
     indices: list[int] | None = None,
     precision: int = 3,
-    columns: list[str] = ["equation", "complexity", "loss", "score"],
+    columns: list[str] | None = None,
     max_equation_length: int = 50,
     output_variable_name: str = "y",
 ) -> str:
     """Generate a booktabs-style LaTeX table for a single set of equations."""
     assert isinstance(equations, pd.DataFrame)
+    if columns is None:
+        columns = ["equation", "complexity", "loss", "score"]
 
     latex_top, latex_bottom = generate_table_environment(columns)
     latex_table_content = []
@@ -131,11 +133,13 @@ def sympy2multilatextable(
     equations: list[pd.DataFrame],
     indices: list[list[int]] | None = None,
     precision: int = 3,
-    columns: list[str] = ["equation", "complexity", "loss", "score"],
+    columns: list[str] | None = None,
     output_variable_names: list[str] | None = None,
 ) -> str:
     """Generate multiple latex tables for a list of equation sets."""
     # TODO: Let user specify custom output variable
+    if columns is None:
+        columns = ["equation", "complexity", "loss", "score"]
 
     latex_tables = [
         sympy2latextable(

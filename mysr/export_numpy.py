@@ -37,15 +37,14 @@ class CallableEquation:
                 **{k: X[k].values for k in map(str, self._sympy_symbols)}
             ) * np.ones(expected_shape)
 
-        if self._selection is not None:
-            if X.shape[1] != self._selection.sum():
-                warnings.warn(
-                    "`X` should be of shape (n_samples, len(self._selection)). "
-                    "Automatically filtering `X` to selection. "
-                    "Note: Filtered `X` column order may not match column order in fit "
-                    "this may lead to incorrect predictions and other errors."
-                )
-                X = X[:, self._selection]
+        if self._selection is not None and X.shape[1] != self._selection.sum():
+            warnings.warn(
+                "`X` should be of shape (n_samples, len(self._selection)). "
+                "Automatically filtering `X` to selection. "
+                "Note: Filtered `X` column order may not match column order in fit "
+                "this may lead to incorrect predictions and other errors."
+            )
+            X = X[:, self._selection]
 
         return self._lambda(*X.T) * np.ones(expected_shape)
 

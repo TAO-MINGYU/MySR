@@ -46,14 +46,13 @@ if autoload_extensions is not None:
 
 
 def _import_juliacall():
-    import juliacall  # type: ignore
+    import juliacall  # type: ignore  # noqa: F401
 
 
 try_with_registry_fallback(_import_juliacall)
 
 
-from juliacall import AnyValue  # type: ignore
-from juliacall import VectorValue  # type: ignore
+from juliacall import AnyValue, VectorValue  # type: ignore  # noqa: F401
 from juliacall import Main as jl  # type: ignore
 
 jl = cast(ModuleType, jl)

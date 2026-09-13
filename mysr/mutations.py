@@ -50,7 +50,7 @@ class AbstractMutation(ABC):
     @abstractmethod
     def julia_mutation(self) -> AnyValue:
         """Create the corresponding SymbolicRegression.jl mutation."""
-        pass  # pragma: no cover
+        ...  # pragma: no cover
 
 
 @dataclass(frozen=True)

@@ -14,17 +14,17 @@ class AbstractLoggerSpec(ABC):
     @abstractmethod
     def create_logger(self) -> AnyValue:
         """Create a logger instance."""
-        pass  # pragma: no cover
+        ...  # pragma: no cover
 
     @abstractmethod
     def write_hparams(self, logger: AnyValue, hparams: dict[str, Any]) -> None:
         """Write hyperparameters to the logger."""
-        pass  # pragma: no cover
+        ...  # pragma: no cover
 
     @abstractmethod
     def close(self, logger: AnyValue) -> None:
         """Close the logger instance."""
-        pass  # pragma: no cover
+        ...  # pragma: no cover
 
 
 @dataclass

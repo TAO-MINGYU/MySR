@@ -87,7 +87,7 @@ def create_sympy_symbols(
 
 
 def mysr2sympy(
-    equation: str | float | int,
+    equation: str | float,
     *,
     feature_names_in: ArrayLike[str] | None = None,
     extra_sympy_mappings: dict[str, Callable] | None = None,
@@ -109,5 +109,5 @@ def mysr2sympy(
 
 
 def assert_valid_sympy_symbol(var_name: str) -> None:
-    if var_name in sympy_mappings or var_name in sympy.__dict__.keys():
+    if var_name in sympy_mappings or var_name in sympy.__dict__:
         raise ValueError(f"Variable name {var_name} is already a function name.")

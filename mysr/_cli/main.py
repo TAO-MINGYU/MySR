@@ -19,8 +19,8 @@ from ..test import (
 
 @click.group("mysr")
 @click.pass_context
-def mysr(context):
-    ctx = context
+def mysr(_context):
+    pass
 
 
 @mysr.command("install", help="DEPRECATED (dependencies are now installed at import).")

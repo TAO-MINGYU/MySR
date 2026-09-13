@@ -26,11 +26,11 @@ def try_with_registry_fallback(f: Callable[..., T], *args, **kwargs) -> T:
         if "JuliaError" not in str(
             type(initial_error)
         ) or "Unsatisfiable requirements detected" not in str(initial_error):
-            raise initial_error
+            raise
 
         old_value = os.environ.get(PREFERENCE_KEY, None)
         if old_value == "eager":
-            raise initial_error
+            raise
 
         warnings.warn(
             "Initial Julia registry operation failed. Attempting to use the `eager` registry flavor of the Julia "

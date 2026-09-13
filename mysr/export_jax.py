@@ -66,9 +66,10 @@ def sympy2jaxtext(expr, parameters, symbols_in, extra_jax_mappings=None):
     elif issubclass(expr.func, sympy.Integer):
         return f"{int(expr)}"
     elif issubclass(expr.func, sympy.Symbol):
-        return (
-            f"X[:, {[i for i in range(len(symbols_in)) if symbols_in[i] == expr][0]}]"
+        symbol_index = next(
+            i for i, symbol in enumerate(symbols_in) if symbol == expr
         )
+        return f"X[:, {symbol_index}]"
     if extra_jax_mappings is None:
         extra_jax_mappings = {}
     try:
@@ -112,6 +113,7 @@ def _initialize_jax():
         jax = _jax
         jnp = _jnp
         jsp = _jsp
+        jax_initialized = True
 
 
 def sympy2jax(expression, symbols_in, selection=None, extra_jax_mappings=None):
@@ -186,10 +188,6 @@ def sympy2jax(expression, symbols_in, selection=None, extra_jax_mappings=None):
         ```
     """
     _initialize_jax()
-    global jax_initialized
-    global jax
-    global jnp
-    global jsp
 
     parameters = []
     functional_form_text = sympy2jaxtext(
@@ -203,5 +201,5 @@ def sympy2jax(expression, symbols_in, selection=None, extra_jax_mappings=None):
     text += "    return "
     text += functional_form_text
     ldict = {}
-    exec(text, globals(), ldict)
+    exec(text, globals(), ldict)  # noqa: S102 - generated expression evaluator
     return ldict[hash_string], jnp.array(parameters)

@@ -20,9 +20,9 @@ except ImportError:
 
 # For type checking purposes
 if TYPE_CHECKING:
-    from .sr import MySRRegressor  # pragma: no cover
+    from .sr import MySRRegressor as _MySRRegressor  # pragma: no cover
 
-    MySRRegressor: TypeAlias = MySRRegressor  # pragma: no cover
+    MySRRegressor: TypeAlias = _MySRRegressor  # pragma: no cover
 else:
     MySRRegressor = NewType("MySRRegressor", Any)
 
@@ -46,7 +46,7 @@ class AbstractExpressionSpec(ABC):
     @abstractmethod
     def julia_expression_spec(self) -> AnyValue:
         """The expression specification"""
-        pass  # pragma: no cover
+        ...  # pragma: no cover
 
     def _julia_expression_spec_source(self, *, prototype: str | None) -> str | None:
         """Return self-contained Julia source for a TypeSpec-compatible spec.
@@ -81,7 +81,7 @@ class AbstractExpressionSpec(ABC):
         i: int | None = None,
     ) -> pd.DataFrame:
         """Create additional columns in the equations dataframe."""
-        pass  # pragma: no cover
+        ...  # pragma: no cover
 
     @property
     def evaluates_in_julia(self) -> bool:
