@@ -12,6 +12,7 @@ implementation at https://github.com/SJ001/AI-Feynman.
 
 from __future__ import annotations
 
+import inspect
 import re
 import warnings
 from collections.abc import Mapping, Sequence
@@ -1165,8 +1166,22 @@ class SurrogateFeatureEngineer:
             initial_budget,
             retry_budget,
         )
+        try:
+            factory_parameters = inspect.signature(self._make_surrogate).parameters
+            supports_budget = "max_iter" in factory_parameters or any(
+                parameter.kind is inspect.Parameter.VAR_KEYWORD
+                for parameter in factory_parameters.values()
+            )
+        except (TypeError, ValueError):
+            # Some extension callables do not expose an inspectable signature;
+            # use the current factory contract in that case.
+            supports_budget = True
         for attempt, budget in enumerate(budgets):
-            model = self._make_surrogate(seed, max_iter=budget)
+            model = (
+                self._make_surrogate(seed, max_iter=budget)
+                if supports_budget
+                else self._make_surrogate(seed)
+            )
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always", ConvergenceWarning)
                 model.fit(values, target)

@@ -1,6 +1,5 @@
 """Functions for initializing the Julia environment and installing deps."""
 
-import os
 from typing import Any, Callable, cast, overload
 
 import numpy as np
@@ -9,6 +8,17 @@ from numpy.typing import NDArray
 
 from .deprecated import init_julia, install
 from .julia_import import AnyValue, jl
+
+__all__ = [
+    "init_julia",
+    "install",
+    "jl_array",
+    "jl_deserialize",
+    "jl_dict",
+    "jl_is_function",
+    "jl_named_tuple",
+    "jl_serialize",
+]
 
 jl_convert = cast(Callable[[Any, Any], Any], jl_convert)
 
