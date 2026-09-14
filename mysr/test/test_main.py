@@ -2664,6 +2664,9 @@ class TestDimensionalConstraints(unittest.TestCase):
             early_stop_condition="(l, c) -> l < 1e-6 && c == 3",
             progress=False,
             model_selection="accuracy",
+            # Dimension metadata is enforced only by the explicit theoretical
+            # formula policy; empirical mode intentionally skips hard screening.
+            formula_type="theoretical",
             niterations=DEFAULT_NITERATIONS * 2,
             populations=DEFAULT_POPULATIONS * 2,
             complexity_of_constants=10,
@@ -2713,8 +2716,10 @@ class TestDimensionalConstraints(unittest.TestCase):
         best3 = model3.get_best()
         self.assertIn("x0", best3["equation"])
 
-        # Try warm start, but with no dimensions provided (should
-        # be a different dataset, and thus different result):
+        # A formula-policy change invalidates warm-start compatibility, so use
+        # a fresh empirical fit when no dimension metadata is supplied.
+        model.formula_type = "empirical"
+        model.warm_start = False
         model.early_stop_condition = "(l, c) -> l < 1e-6 && c == 1"
         model.fit(X, y)
         self.assertEqual(model.equations_.iloc[0].complexity, 1)
