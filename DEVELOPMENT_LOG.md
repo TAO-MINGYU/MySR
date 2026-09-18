@@ -324,9 +324,9 @@
   `51 passed` 和 `39 subtests passed`；`ruff check mysr`、`python -m compileall -q mysr`
   通过。Carbon 独立 run-local project 使用同步源码完成 1-iteration serial asymmetric
   likelihood smoke，产生 1 条 equation。
-- **Environment limitation**：全量 405 项 pytest 尝试中，Zygote optional package 在
-  临时 Julia project registry 中不可解析，`test_dev` 需要但当前 WSL 不存在 Docker CLI；
-  这两项是环境阻断，不是 MySR bridge 源码失败。全量运行在长耗时阶段手动停止，不能标记
-  为 405/405 全部通过。
+- **Environment limitation**：全量 405 项 pytest 尝试中，Zygote/Bumper optional package
+  在临时 Julia project registry 中不可解析，`test_dev` 需要但当前 WSL 不存在 Docker CLI，
+  notebook test 缺少 `pytest --nbval` 插件；这些是环境阻断，不是 MySR bridge 源码失败。
+  全量运行在长耗时阶段手动停止，不能标记为 405/405 全部通过。
 - **Decision**：不为环境问题修改源码或安装全局依赖；后续若要宣称全套通过，应先在具备
   Zygote registry 和 Docker 的隔离环境中重跑。
