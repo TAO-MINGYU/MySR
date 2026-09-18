@@ -312,7 +312,7 @@
 
 - **Decision**：feature branch `feature/uncertainty-loss-v1` 增加 `loss_preset`、`uncertainty_mode`、`robust_delta`、`student_nu` 及 `fit` 的 `sigma`/`sigma_minus`/`sigma_plus` 输入；log-space residual 不在范围内。
 - **Confirmed**：Python 端验证模式、正数和形状，拒绝 weights 与 uncertainty 混用；通过 `Dataset.extra` 桥接到 MySRCore。自动 feature engineering、denoise 和 TypeSpec 对 uncertainty 明确拒绝。
-- **Verification**：uncertainty bridge `3 passed`；RNN/migration regression `57 passed`；目标文件 Ruff、compileall、diff-check 通过。TypeSpec 全量仍有 3 个既有 worker/TemplateExpression 失败，未归因于本轮 loss。
+- **Historical verification (superseded 2026-09-18)**：当时 uncertainty bridge `3 passed`、RNN/migration `57 passed`，TypeSpec 仍有 3 个 worker/TemplateExpression 失败；后续 audit 已以 TypeSpec `51 passed`、`39 subtests passed` 取代该残余记录。
 - **Unknown**：尚无匹配预算 benchmark 或搜索质量提升证据；未 push。
 
 ## 2026-09-18 - Frontend audit and cross-environment smoke
