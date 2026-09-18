@@ -327,3 +327,11 @@
   Carbon doctor/matched-environment gate 通过，四组 array/reducer 已提交。
 - **Unknown**：远程搜索尚未完成；前端参数对最终 HOF、测试误差和资源的影响待完整 reducer
   产物验证，不能把异步提交视作性能证据。
+
+## 2026-09-18 - Move parent-selection benchmark to node2
+
+- **Decision**：取消旧 Carbon-pinned benchmark jobs，保留旧结果目录；新的 frontend snapshot
+  固定在 node2 run root，不影响 canonical checkout。
+- **Verification**：新四组 array/reducer `32696/32697`、`32702/32703`、`32708/32709`、
+  `32714/32715` 已提交，首批 array elements 均在 node2 运行。
+- **Unknown**：搜索尚未完成，前端参数对 HOF、测试误差和资源的影响待 reducer 产物验证。
