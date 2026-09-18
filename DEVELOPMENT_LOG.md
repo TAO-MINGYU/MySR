@@ -318,3 +318,12 @@
   worktree 的 epsilon-lexicase + AFP 搜索 smoke 通过。
 - **Unknown**：当前 Python smoke 使用的是环境中已注册的 backend；完整前端 bridge
   运行需在后端 worktree 被注册到该环境后再验证，尚未作为 benchmark 证据记录。
+
+## 2026-09-18 - Submit parent-selection benchmark
+
+- **Confirmed**：前端 worktree 与对应 MySRCore snapshot 一起部署到新的 Carbon run root；
+  profile 明确转发四个 parent/survival arm，且关闭 AFE/RNN seeding 以隔离后端选择策略。
+- **Verification**：`sr.py` compile/ruff 和 Python constructor/get-params smoke 已通过；
+  Carbon doctor/matched-environment gate 通过，四组 array/reducer 已提交。
+- **Unknown**：远程搜索尚未完成；前端参数对最终 HOF、测试误差和资源的影响待完整 reducer
+  产物验证，不能把异步提交视作性能证据。
