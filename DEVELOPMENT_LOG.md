@@ -354,3 +354,10 @@
   `JULIA_DEPOT_PATH="$CONDA_PREFIX/test_support/loss-audit-20260918/depot:$CONDA_PREFIX/julia_depot"`、
   `JULIA_PKG_OFFLINE=false`、`PYTHON_JULIAPKG_OFFLINE=false`，然后运行
   `pytest -q mysr/test`；Docker 用例需在新 shell 或 `sg docker -c` 下运行。
+
+## 2026-09-18 - Integrate loss-audit branch into canonical main
+
+- **Decision**：将 `feature/loss-audit-quality-20260918` 快进合并到本仓库 `main`；该 feature 相对 `main` 领先 6 个提交且 `main` 是其祖先，因此不制造额外合并提交。
+- **Confirmed**：本地 `main` 与 `origin/main` 均指向 `ec34f82`；已删除本地及远程 `feature/loss-audit-quality-20260918`，并保留 `backup/pre-main-merge-loss-audit-20260918` 与 `backup/pre-feature-delete-loss-audit-20260918`。
+- **Verification**：合并后 Python `py_compile`（`sr.py`、`type_specs.py`、uncertainty loss 测试）和 `git diff --check` 通过；`main` 已成功推送。
+- **Scope**：独立的 `worktrees/parent-selection/MySR` 及其 `worktree/parent-selection-20260918` 分支未修改、未删除。
