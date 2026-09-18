@@ -332,3 +332,25 @@
   全量运行在长耗时阶段手动停止，不能标记为 405/405 全部通过。
 - **Decision**：不为环境问题修改源码或安装全局依赖；后续若要宣称全套通过，应先在具备
   Zygote registry 和 Docker 的隔离环境中重跑。
+
+## 2026-09-18 - Authorized dependency recovery and bounded full-suite run
+
+- **Decision**：按用户授权，只在 `env_mysr` 与其隔离测试项目中补齐测试依赖；不修改
+  MySR tracked source，不提交 `mysr/test/outputs/` 或根目录 `outputs/`。
+- **Confirmed**：`nbval 0.11.0` 已安装到 `/home/taomingyu/miniconda3/envs/env_mysr`；
+  `python -m pip check` 无依赖冲突。Julia 测试项目为
+  `$CONDA_PREFIX/test_support/loss-audit-20260918/project`，写入 depot 为同名
+  `depot`，Julia 1.10.3 使用 `MySRCore` 当前 checkout；Bumper 0.6.0、Zygote 0.7.12、
+  LoopVectorization 0.12.174、TensorBoardLogger 0.1.26、SlurmClusterManager 1.1.0
+  和 ClusterManagers 2.0.0 已通过官方 registry 解析并预编译。
+- **Verification**：`test_autodiff.py` 与 `test_startup.py` 共 `8 passed`；pytest
+  `--collect-only` 收集 `405 tests`。Docker Engine 29.8.1、buildx 0.37.1 在 WSL
+  安装并启动，官方 `hello-world` 镜像经 daemon 代理成功拉取运行。
+- **Environment limitation**：完整 `pytest -q mysr/test` 已启动并运行约 67 分钟，用户因
+  计算资源达到上限要求停止；进程以 `143` 退出，不能宣称 `405/405` 或给出完整最终失败
+  分组。当前环境仍未安装 `jax`/`tensorboard`，后续若要覆盖对应测试需单独补齐。
+- **Reproduction**：先 `conda activate env_mysr`，设置
+  `PYTHON_JULIACALL_PROJECT`、`PYTHON_JULIAPKG_PROJECT` 指向上述 project，设置
+  `JULIA_DEPOT_PATH="$CONDA_PREFIX/test_support/loss-audit-20260918/depot:$CONDA_PREFIX/julia_depot"`、
+  `JULIA_PKG_OFFLINE=false`、`PYTHON_JULIAPKG_OFFLINE=false`，然后运行
+  `pytest -q mysr/test`；Docker 用例需在新 shell 或 `sg docker -c` 下运行。
