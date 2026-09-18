@@ -322,8 +322,10 @@
   MySRCore 修复提交 `e966720` 对齐。
 - **Verification**：uncertainty bridge `3 passed`、RNN/migration `57 passed`、TypeSpec
   `51 passed` 和 `39 subtests passed`；`ruff check mysr`、`python -m compileall -q mysr`
-  通过。Carbon 独立 run-local project 使用同步源码完成 1-iteration serial asymmetric
-  likelihood smoke，产生 1 条 equation。
+  通过。量纲/feature-engineering 套件另通过 `88 passed`；pipeline 在可选 Bumper 之前
+  的 19 项通过；startup/slurm/juliapkg 小套件 `8 passed, 1 skipped`。Carbon 独立
+  run-local project 使用同步源码完成 1-iteration serial asymmetric likelihood smoke，
+  产生 1 条 equation。
 - **Environment limitation**：全量 405 项 pytest 尝试中，Zygote/Bumper optional package
   在临时 Julia project registry 中不可解析，`test_dev` 需要但当前 WSL 不存在 Docker CLI，
   notebook test 缺少 `pytest --nbval` 插件；这些是环境阻断，不是 MySR bridge 源码失败。
