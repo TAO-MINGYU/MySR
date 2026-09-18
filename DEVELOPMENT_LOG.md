@@ -307,3 +307,14 @@
 - **Confirmed**：剩余测试/Notebook Ruff 诊断已按语义等价方式清理，`ruff check mysr` 现在 0 diagnostics；未使用 unsafe fix 改变运行逻辑。
 - **Verification**：`python -m compileall -q mysr`、`git diff --check` 通过；提交 `643731f`。
 - **Unknown**：pytest 仍需可写 Julia depot 才能完成完整 collection，环境 EROFS 不构成源码断言失败。
+
+## 2026-09-18 - Expose parent-selection and survival policies
+
+- **Decision**：为 `MySRRegressor` 增加显式 opt-in 的 `parent_selection` 与
+  `survival_strategy` 参数，默认分别为 `"tournament"` 和
+  `"regularized_evolution"`，并转发为 Julia `Symbol`。
+- **Confirmed**：参数出现在 `get_params()`，前端校验拒绝未知策略；参数分组文档已同步。
+- **Verification**：`env_mysr` Python constructor/get-params smoke 通过；对应后端
+  worktree 的 epsilon-lexicase + AFP 搜索 smoke 通过。
+- **Unknown**：当前 Python smoke 使用的是环境中已注册的 backend；完整前端 bridge
+  运行需在后端 worktree 被注册到该环境后再验证，尚未作为 benchmark 证据记录。

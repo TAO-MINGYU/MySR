@@ -59,6 +59,8 @@
   - Tournament Selection:
     - tournament_selection_n
     - tournament_selection_p
+    - parent_selection
+    - survival_strategy
   - Constant Optimization:
     - optimizer_algorithm
     - optimizer_nrestarts

@@ -921,6 +921,16 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         tournament. The probability will decay as p*(1-p)^n for other
         expressions, sorted by loss.
         Default is `0.982`.
+    parent_selection : Literal["tournament", "epsilon_lexicase"]
+        Parent-selection policy. ``"tournament"`` preserves the default
+        scalar-cost tournament; ``"epsilon_lexicase"`` selects parents from
+        per-case errors when the backend can evaluate the configured loss
+        case by case. Default is ``"tournament"``.
+    survival_strategy : Literal["regularized_evolution", "age_fitness_pareto"]
+        Population-survival policy. ``"regularized_evolution"`` preserves
+        oldest-member replacement; ``"age_fitness_pareto"`` applies
+        Age-Fitness Pareto survival to parent and offspring candidates.
+        Default is ``"regularized_evolution"``.
     parallelism: Literal["serial", "multithreading", "multiprocessing"] | None
         Parallelism to use for the search. Can be `"serial"`, `"multithreading"`, or `"multiprocessing"`.
         Default is `"multithreading"`.
@@ -1331,6 +1341,10 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         probability_negate_constant: float = 0.00743,
         tournament_selection_n: int = 15,
         tournament_selection_p: float = 0.982,
+        parent_selection: Literal["tournament", "epsilon_lexicase"] = "tournament",
+        survival_strategy: Literal[
+            "regularized_evolution", "age_fitness_pareto"
+        ] = "regularized_evolution",
         parallelism: (
             Literal["serial", "multithreading", "multiprocessing"] | None
         ) = None,
@@ -1553,6 +1567,8 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         # -- Selection parameters
         self.tournament_selection_n = tournament_selection_n
         self.tournament_selection_p = tournament_selection_p
+        self.parent_selection = parent_selection
+        self.survival_strategy = survival_strategy
         # -- Performance parameters
         self.parallelism = parallelism
         self.procs = procs
@@ -2229,6 +2245,18 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         if self.tournament_selection_n > self.population_size:
             raise ValueError(
                 "`tournament_selection_n` parameter must be smaller than `population_size`."
+            )
+        if self.parent_selection not in ("tournament", "epsilon_lexicase"):
+            raise ValueError(
+                "`parent_selection` must be 'tournament' or 'epsilon_lexicase'."
+            )
+        if self.survival_strategy not in (
+            "regularized_evolution",
+            "age_fitness_pareto",
+        ):
+            raise ValueError(
+                "`survival_strategy` must be 'regularized_evolution' or "
+                "'age_fitness_pareto'."
             )
         if not isinstance(self.rnn_gpsr_seeding, bool):
             raise TypeError("`rnn_gpsr_seeding` must be a bool")
@@ -3390,6 +3418,8 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             default_plugins=default_plugins,
             tournament_selection_p=self.tournament_selection_p,
             tournament_selection_n=self.tournament_selection_n,
+            parent_selection=jl.Symbol(self.parent_selection),
+            survival_strategy=jl.Symbol(self.survival_strategy),
             # These have the same name:
             parsimony=self.parsimony,
             alpha=self.alpha,
