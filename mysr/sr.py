@@ -112,6 +112,26 @@ _CHECKPOINT_SCHEMA_VERSION = 3
 
 ALREADY_RAN = False
 
+_LOSS_PRESETS = {
+    "default",
+    "l1",
+    "l2",
+    "huber",
+    "pseudo_huber",
+    "log_cosh",
+    "gaussian_nll",
+    "asymmetric_gaussian_nll",
+    "asymmetric_huber",
+    "asymmetric_pseudo_huber",
+    "asymmetric_student_t_nll",
+}
+_ASYMMETRIC_LOSS_PRESETS = {
+    "asymmetric_gaussian_nll",
+    "asymmetric_huber",
+    "asymmetric_pseudo_huber",
+    "asymmetric_student_t_nll",
+}
+
 mysr_logger = logging.getLogger(__name__)
 
 
@@ -638,6 +658,15 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         (including negative) and is useful for custom loss functions,
         especially those based on likelihoods.
         Default is "log".
+    loss_preset : str
+        Built-in objective family. Supported values include ``default``, ``l1``,
+        ``l2``, ``huber``, ``pseudo_huber``, ``log_cosh``, ``gaussian_nll`` and
+        the asymmetric uncertainty presets ``asymmetric_gaussian_nll``,
+        ``asymmetric_huber``, ``asymmetric_pseudo_huber`` and
+        ``asymmetric_student_t_nll``.
+    uncertainty_mode : Literal["none", "symmetry", "asymmetry"]
+        Selects no uncertainty, one symmetric ``sigma`` per observation, or
+        lower/upper ``sigma_minus`` and ``sigma_plus`` widths supplied to fit.
     complexity_of_operators : dict[str, int | float]
         If you would like to use a complexity other than 1 for an
         operator, specify the complexity here. For example,
@@ -1248,6 +1277,10 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         loss_function: str | None = None,
         loss_function_expression: str | None = None,
         loss_scale: Literal["log", "linear"] = "log",
+        loss_preset: str = "default",
+        uncertainty_mode: Literal["none", "symmetry", "asymmetry"] = "none",
+        robust_delta: float = 1.0,
+        student_nu: float = 4.0,
         complexity_of_operators: dict[str, int | float] | None = None,
         complexity_of_constants: float | None = None,
         complexity_of_variables: float | list[float] | None = None,
@@ -1448,6 +1481,10 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         self.loss_function = loss_function
         self.loss_function_expression = loss_function_expression
         self.loss_scale = loss_scale
+        self.loss_preset = loss_preset
+        self.uncertainty_mode = uncertainty_mode
+        self.robust_delta = robust_delta
+        self.student_nu = student_nu
         self.complexity_of_operators = complexity_of_operators
         self.complexity_of_constants = complexity_of_constants
         self.complexity_of_variables = complexity_of_variables
@@ -2202,6 +2239,60 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
         if self.type_spec is not None:
             validate_type_spec_model_configuration(self)
+        if self.loss_preset not in _LOSS_PRESETS:
+            raise ValueError(
+                f"Unsupported loss_preset {self.loss_preset!r}; choose one of "
+                f"{sorted(_LOSS_PRESETS)}"
+            )
+        if self.uncertainty_mode not in {"none", "symmetry", "asymmetry"}:
+            raise ValueError(
+                "uncertainty_mode must be 'none', 'symmetry', or 'asymmetry'"
+            )
+        if not np.isfinite(self.robust_delta) or self.robust_delta <= 0:
+            raise ValueError("robust_delta must be finite and positive")
+        if not np.isfinite(self.student_nu) or self.student_nu <= 0:
+            raise ValueError("student_nu must be finite and positive")
+        if self.loss_preset == "gaussian_nll" and self.uncertainty_mode != "symmetry":
+            raise ValueError("gaussian_nll requires uncertainty_mode='symmetry'")
+        if self.loss_preset in _ASYMMETRIC_LOSS_PRESETS and self.uncertainty_mode != "asymmetry":
+            raise ValueError(
+                f"{self.loss_preset} requires uncertainty_mode='asymmetry'"
+            )
+        if self.uncertainty_mode == "asymmetry" and self.loss_preset not in (
+            "default",
+            *_ASYMMETRIC_LOSS_PRESETS,
+        ):
+            raise ValueError(
+                "uncertainty_mode='asymmetry' requires an asymmetric loss preset "
+                "or loss_preset='default'"
+            )
+        likelihood_preset = self.loss_preset in {
+            "gaussian_nll",
+            "asymmetric_gaussian_nll",
+            "asymmetric_student_t_nll",
+        } or (
+            self.uncertainty_mode == "asymmetry" and self.loss_preset == "default"
+        )
+        if likelihood_preset and self.loss_scale == "log":
+            raise ValueError(
+                "Likelihood loss presets can be negative; use loss_scale='linear'"
+            )
+        if self.loss_preset != "default" and (
+            self.elementwise_loss is not None
+            or self.loss_function is not None
+            or self.loss_function_expression is not None
+        ):
+            raise ValueError(
+                "Built-in loss_preset cannot be combined with a custom loss function"
+            )
+        if self.uncertainty_mode != "none" and (
+            self.elementwise_loss is not None
+            or self.loss_function is not None
+            or self.loss_function_expression is not None
+        ):
+            raise ValueError(
+                "uncertainty-aware presets cannot be combined with a custom loss function"
+            )
         legacy_mutation_weights_used = any(
             getattr(self, parameter) is not None
             for parameter in _LEGACY_MUTATION_PARAMETERS
@@ -2347,6 +2438,9 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         y,
         Xresampled,
         weights,
+        sigma,
+        sigma_minus,
+        sigma_plus,
         variable_names,
         complexity_of_variables,
         X_dimensions,
@@ -2428,6 +2522,9 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 complexity_of_variables,
                 X_dimensions,
                 y_dimensions,
+                sigma,
+                sigma_minus,
+                sigma_plus,
             )
 
         if isinstance(X, pd.DataFrame):
@@ -2461,6 +2558,50 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         if weights is not None:
             weights = check_array(weights, ensure_2d=False)
             check_consistent_length(weights, y)
+        uncertainty_values = {
+            "sigma": sigma,
+            "sigma_minus": sigma_minus,
+            "sigma_plus": sigma_plus,
+        }
+        for name, values in uncertainty_values.items():
+            if values is None:
+                continue
+            values_array = check_array(values, ensure_2d=False, dtype="numeric")
+            check_consistent_length(values_array, y)
+            y_array = np.asarray(y)
+            y_shape = y_array.shape
+            single_output = y_array.ndim == 1 or (
+                y_array.ndim == 2 and y_array.shape[1] == 1
+            )
+            # A single-output column is commonly provided as (n, 1).
+            if values_array.shape != y_shape and not (
+                single_output and values_array.shape in {(len(y), 1), (len(y),)}
+            ):
+                raise ValueError(
+                    f"`{name}` must have the same shape as y; got "
+                    f"{values_array.shape} and {y_shape}."
+                )
+            if not np.all(np.isfinite(values_array)) or np.any(values_array <= 0):
+                raise ValueError(f"`{name}` must contain finite, strictly positive values.")
+            uncertainty_values[name] = values_array
+        sigma = uncertainty_values["sigma"]
+        sigma_minus = uncertainty_values["sigma_minus"]
+        sigma_plus = uncertainty_values["sigma_plus"]
+        provided_uncertainty = [value is not None for value in (sigma, sigma_minus, sigma_plus)]
+        if self.uncertainty_mode == "none" and any(provided_uncertainty):
+            raise ValueError(
+                "Provide uncertainty_mode='symmetry' or 'asymmetry' when using uncertainty arrays."
+            )
+        if self.uncertainty_mode == "symmetry" and (sigma_minus is not None or sigma_plus is not None):
+            raise ValueError("uncertainty_mode='symmetry' accepts sigma only.")
+        if self.uncertainty_mode == "symmetry" and sigma is None:
+            raise ValueError("uncertainty_mode='symmetry' requires a sigma array.")
+        if self.uncertainty_mode == "asymmetry" and (sigma_minus is None or sigma_plus is None):
+            raise ValueError(
+                "uncertainty_mode='asymmetry' requires sigma_minus and sigma_plus."
+            )
+        if any(provided_uncertainty) and weights is not None:
+            raise ValueError("weights cannot be combined with uncertainty arrays.")
         X, y = self._validate_data_X_y(X, y)
         self.feature_names_in_ = _safe_check_feature_names_in(
             self, variable_names, generate_names=False
@@ -2479,6 +2620,12 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         # Handle multioutput data
         if len(y.shape) == 1 or (len(y.shape) == 2 and y.shape[1] == 1):
             y = y.reshape(-1)
+            if sigma is not None:
+                sigma = np.asarray(sigma).reshape(-1)
+            if sigma_minus is not None:
+                sigma_minus = np.asarray(sigma_minus).reshape(-1)
+            if sigma_plus is not None:
+                sigma_plus = np.asarray(sigma_plus).reshape(-1)
         elif len(y.shape) == 2:
             self.nout_ = y.shape[1]
         else:
@@ -2518,6 +2665,9 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             y,
             Xresampled,
             weights,
+            sigma,
+            sigma_minus,
+            sigma_plus,
             variable_names,
             complexity_of_variables,
             X_dimensions,
@@ -2927,6 +3077,9 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         y: ndarray,
         runtime_params: _DynamicallySetParams,
         weights: ndarray | None,
+        sigma: ndarray | None,
+        sigma_minus: ndarray | None,
+        sigma_plus: ndarray | None,
         seed: int,
         type_spec_runtime: _TypeSpecRuntime | None,
         parallelism: Literal["serial", "multithreading", "multiprocessing"],
@@ -2948,6 +3101,9 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             Weight array of the same shape as `y`.
             Each element is how to weight the mean-square-error loss
             for that particular element of y.
+        sigma, sigma_minus, sigma_plus : ndarray | None
+            Positive measurement uncertainty arrays. Symmetric mode uses
+            ``sigma``; asymmetric mode uses the lower and upper arrays.
         seed : int
             Random seed for julia backend process.
         type_spec_runtime : _TypeSpecRuntime | None
@@ -3374,6 +3530,10 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             loss_function=custom_full_objective,
             loss_function_expression=custom_loss_expression,
             loss_scale=jl.Symbol(self.loss_scale),
+            loss_preset=jl.Symbol(self.loss_preset),
+            uncertainty_mode=jl.Symbol(self.uncertainty_mode),
+            robust_delta=float(self.robust_delta),
+            student_nu=float(self.student_nu),
             maxsize=int(self.maxsize),
             output_directory=_escape_filename(self.output_directory_),
             npopulations=int(self.populations),
@@ -3510,6 +3670,18 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         else:
             jl_weights = None
 
+        def uncertainty_to_julia(values):
+            if values is None:
+                return None
+            values_array = np.asarray(values, dtype=np_dtype)
+            if values_array.ndim == 1:
+                return jl_array(values_array)
+            return jl_array(values_array.T)
+
+        jl_sigma = uncertainty_to_julia(sigma)
+        jl_sigma_minus = uncertainty_to_julia(sigma_minus)
+        jl_sigma_plus = uncertainty_to_julia(sigma_plus)
+
         if len(y.shape) > 1:
             # We set these manually so that they respect Python's 0 indexing
             # (by default Julia will use y1, y2...)
@@ -3541,6 +3713,9 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             jl_X,
             jl_y,
             weights=jl_weights,
+            sigma=jl_sigma,
+            sigma_minus=jl_sigma_minus,
+            sigma_plus=jl_sigma_plus,
             niterations=int(self.niterations),
             variable_names=jl_array([str(v) for v in self.feature_names_in_]),
             display_variable_names=jl_array(
@@ -3600,6 +3775,9 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         *,
         Xresampled=None,
         weights=None,
+        sigma=None,
+        sigma_minus=None,
+        sigma_plus=None,
         variable_names: ArrayLike[str] | None = None,
         complexity_of_variables: float | list[float] | None = None,
         X_dimensions: ArrayLike[DimensionVector] | None = None,
@@ -3625,6 +3803,12 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             for that particular element of `y`. Alternatively,
             if a custom `loss` was set, it will can be used
             in arbitrary ways.
+        sigma : ndarray | pandas.DataFrame
+            Positive symmetric measurement uncertainty with the same shape as
+            `y`; used when `uncertainty_mode="symmetry"`.
+        sigma_minus, sigma_plus : ndarray | pandas.DataFrame
+            Positive lower and upper uncertainty widths; both are required
+            when `uncertainty_mode="asymmetry"`.
         variable_names : list[str]
             A list of names for the variables, rather than "x0", "x1", etc.
             If `X` is a pandas dataframe, the column names will be used
@@ -3645,14 +3829,23 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         """
         if not isinstance(self.auto_feature_engineering, bool):
             raise TypeError("auto_feature_engineering must be a bool")
+        if self.denoise and any(
+            value is not None for value in (sigma, sigma_minus, sigma_plus)
+        ):
+            raise NotImplementedError(
+                "Denoising currently changes targets without propagating measurement uncertainty."
+            )
         if self.auto_feature_engineering:
             if self.type_spec is not None:
                 raise NotImplementedError(
                     "Automatic feature engineering does not yet support type_spec"
                 )
-            if weights is not None:
+            if weights is not None or any(
+                value is not None for value in (sigma, sigma_minus, sigma_plus)
+            ):
                 raise NotImplementedError(
-                    "Automatic feature engineering does not yet support sample weights"
+                    "Automatic feature engineering does not yet support weighted or "
+                    "uncertainty-aware fitting"
                 )
             if self.warm_start:
                 raise NotImplementedError(
@@ -3707,6 +3900,9 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             y,
             Xresampled,
             weights,
+            sigma,
+            sigma_minus,
+            sigma_plus,
             variable_names,
             complexity_of_variables,
             X_dimensions,
@@ -3716,6 +3912,9 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             y,
             Xresampled,
             weights,
+            sigma,
+            sigma_minus,
+            sigma_plus,
             variable_names,
             complexity_of_variables,
             X_dimensions,
@@ -3773,6 +3972,9 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             y,
             runtime_params,
             weights=weights,
+            sigma=sigma,
+            sigma_minus=sigma_minus,
+            sigma_plus=sigma_plus,
             seed=seed,
             type_spec_runtime=type_spec_runtime,
             parallelism=parallelism,

@@ -1206,7 +1206,22 @@ def prepare_type_spec_fit_data(
     complexity_of_variables: Any,
     X_dimensions: Any,
     y_dimensions: Any,
-) -> tuple[np.ndarray, np.ndarray, None, Any, np.ndarray, Any, Any, Any]:
+    sigma: Any = None,
+    sigma_minus: Any = None,
+    sigma_plus: Any = None,
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    None,
+    Any,
+    Any,
+    Any,
+    Any,
+    Any,
+    Any,
+    Any,
+    Any,
+]:
     if Xresampled is not None or model.denoise or model.select_k_features:
         raise NotImplementedError(
             "TypeSpec does not support resampling, denoising, or feature selection."
@@ -1248,6 +1263,12 @@ def prepare_type_spec_fit_data(
         raise ValueError("X and y must contain at least one sample.")
     if weights is not None:
         raise NotImplementedError("TypeSpec does not currently support weights.")
+    if model.uncertainty_mode != "none" or any(
+        value is not None for value in (sigma, sigma_minus, sigma_plus)
+    ):
+        raise NotImplementedError(
+            "TypeSpec does not currently support measurement uncertainty."
+        )
     if X_dimensions is not None or y_dimensions is not None:
         raise NotImplementedError("TypeSpec does not currently support dimensions.")
 
@@ -1265,6 +1286,9 @@ def prepare_type_spec_fit_data(
         y,
         None,
         weights,
+        sigma,
+        sigma_minus,
+        sigma_plus,
         model.feature_names_in_,
         complexity_of_variables,
         X_dimensions,

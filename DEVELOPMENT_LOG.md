@@ -307,3 +307,10 @@
 - **Confirmed**：剩余测试/Notebook Ruff 诊断已按语义等价方式清理，`ruff check mysr` 现在 0 diagnostics；未使用 unsafe fix 改变运行逻辑。
 - **Verification**：`python -m compileall -q mysr`、`git diff --check` 通过；提交 `643731f`。
 - **Unknown**：pytest 仍需可写 Julia depot 才能完成完整 collection，环境 EROFS 不构成源码断言失败。
+
+## 2026-09-18 - Uncertainty-aware objective bridge
+
+- **Decision**：feature branch `feature/uncertainty-loss-v1` 增加 `loss_preset`、`uncertainty_mode`、`robust_delta`、`student_nu` 及 `fit` 的 `sigma`/`sigma_minus`/`sigma_plus` 输入；log-space residual 不在范围内。
+- **Confirmed**：Python 端验证模式、正数和形状，拒绝 weights 与 uncertainty 混用；通过 `Dataset.extra` 桥接到 MySRCore。自动 feature engineering、denoise 和 TypeSpec 对 uncertainty 明确拒绝。
+- **Verification**：uncertainty bridge `3 passed`；RNN/migration regression `57 passed`；目标文件 Ruff、compileall、diff-check 通过。TypeSpec 全量仍有 3 个既有 worker/TemplateExpression 失败，未归因于本轮 loss。
+- **Unknown**：尚无匹配预算 benchmark 或搜索质量提升证据；未 push。
