@@ -419,3 +419,12 @@
   backend path 指向对应 MySRCore parent-selection worktree。
 - **Unknown**：完整 Python 405 项本轮未运行；search surrogate 与 parent-selection 的大规模
   质量/吞吐收益仍需匹配 benchmark，不能由本次 smoke 推断。
+
+## 2026-09-19 - Document uncertainty-aware epsilon-lexicase bridge
+
+- **Confirmed**：更新 `mysr/sr.py` 的 `parent_selection` 参数说明，明确 built-in
+  uncertainty-aware preset 支持 epsilon-lexicase，并说明 batching/custom aggregate 的
+  backend fallback 条件；未改变 Python 参数或 bridge wire contract。
+- **Verification**：`python -m compileall -q mysr` 与 Ruff（`mysr/sr.py`、uncertainty test）
+  通过；隔离 Julia Project 指向 parent-selection MySRCore 的 Python fit smoke 返回 2 条方程。
+- **Unknown**：完整 Python suite 与匹配预算性能结果仍未在本次修改中重跑/测量。

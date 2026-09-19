@@ -982,8 +982,9 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     parent_selection : Literal["tournament", "epsilon_lexicase"]
         Parent-selection policy. ``"tournament"`` preserves the default
         scalar-cost tournament; ``"epsilon_lexicase"`` selects parents from
-        per-case errors when the backend can evaluate the configured loss
-        case by case. Default is ``"tournament"``.
+        per-case errors for built-in losses, including uncertainty-aware
+        presets, when batching and custom aggregate objectives are disabled.
+        Default is ``"tournament"``.
     survival_strategy : Literal["regularized_evolution", "age_fitness_pareto"]
         Population-survival policy. ``"regularized_evolution"`` preserves
         oldest-member replacement; ``"age_fitness_pareto"`` applies
