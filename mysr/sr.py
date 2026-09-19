@@ -3549,7 +3549,13 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             )
             else {}
         )
-        search_surrogate_options = self._search_surrogate_backend_options()
+        # Do not send newly introduced keywords when the feature is disabled;
+        # this keeps the default path compatible with older MySRCore releases.
+        search_surrogate_options = (
+            self._search_surrogate_backend_options()
+            if self.search_surrogate_enabled
+            else {}
+        )
         population_migration_options: dict[str, Any] = {}
         if self.population_profiles is not None:
             julia_profiles = []

@@ -370,6 +370,8 @@
   样本上限配置。
 - **Confirmed**：`MySRRegressor` 完成参数保存、范围/类型校验和 Julia `Symbol` 模型名映射；
   新增回归覆盖 public attributes、Options mapping 与非法值拒绝。
+- **Confirmed**：surrogate 关闭时不向 backend 发送新增 keyword，保持旧版 MySRCore 的默认
+  路径兼容；只有显式开启时才发送 surrogate Options。
 - **修改路径**：`mysr/sr.py`、`mysr/test/test_dimensional_formula_type.py`。
 - **Verification**：env_mysr 配合临时可写 JuliaCall project/depot，并将 backend path 指向
   surrogate MySRCore worktree，目标测试 `24 passed`；直接使用 canonical backend 时的未知
