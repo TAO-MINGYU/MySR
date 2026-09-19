@@ -985,10 +985,14 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         per-case errors for built-in losses, including uncertainty-aware
         presets, when batching and custom aggregate objectives are disabled.
         Default is ``"tournament"``.
-    survival_strategy : Literal["regularized_evolution", "age_fitness_pareto"]
+    survival_strategy : Literal[
+        "regularized_evolution", "age_fitness_pareto", "competitive_age_fitness"
+    ]
         Population-survival policy. ``"regularized_evolution"`` preserves
         oldest-member replacement; ``"age_fitness_pareto"`` applies
-        Age-Fitness Pareto survival to parent and offspring candidates.
+        Age-Fitness Pareto survival to parent and offspring candidates;
+        ``"competitive_age_fitness"`` first compares each child with its parent,
+        then applies age-fitness survival with structural duplicate suppression.
         Default is ``"regularized_evolution"``.
     parallelism: Literal["serial", "multithreading", "multiprocessing"] | None
         Parallelism to use for the search. Can be `"serial"`, `"multithreading"`, or `"multiprocessing"`.
@@ -1416,7 +1420,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         tournament_selection_p: float = 0.982,
         parent_selection: Literal["tournament", "epsilon_lexicase"] = "tournament",
         survival_strategy: Literal[
-            "regularized_evolution", "age_fitness_pareto"
+            "regularized_evolution", "age_fitness_pareto", "competitive_age_fitness"
         ] = "regularized_evolution",
         parallelism: (
             Literal["serial", "multithreading", "multiprocessing"] | None
@@ -2421,10 +2425,11 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         if self.survival_strategy not in (
             "regularized_evolution",
             "age_fitness_pareto",
+            "competitive_age_fitness",
         ):
             raise ValueError(
                 "`survival_strategy` must be 'regularized_evolution' or "
-                "'age_fitness_pareto'."
+                "'age_fitness_pareto' or 'competitive_age_fitness'."
             )
         if not isinstance(self.rnn_gpsr_seeding, bool):
             raise TypeError("`rnn_gpsr_seeding` must be a bool")

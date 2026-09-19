@@ -428,3 +428,14 @@
 - **Verification**：`python -m compileall -q mysr` 与 Ruff（`mysr/sr.py`、uncertainty test）
   通过；隔离 Julia Project 指向 parent-selection MySRCore 的 Python fit smoke 返回 2 条方程。
 - **Unknown**：完整 Python suite 与匹配预算性能结果仍未在本次修改中重跑/测量。
+
+## 2026-09-19 - Expose competitive age-fitness survival strategy
+
+- **Decision**：`MySRRegressor.survival_strategy` 新增
+  `"competitive_age_fitness"`，并继续默认使用 `"regularized_evolution"`。
+- **Confirmed**：Python 参数校验、`get_params` 和 Julia `Options` symbol 转发保持一致；
+  新策略说明了 child-parent competition、AFP survivor selection 和结构重复抑制。
+- **修改路径**：`mysr/sr.py`、`mysr/test/test_survival_strategy.py`。
+- **Verification**：隔离 Julia project/depot 指向本 worktree backend 时，新增前端测试
+  `2 passed`；backend competitive survival + uncertainty/surrogate serial smoke 成功。
+- **Unknown**：新策略的真实搜索质量、evaluations 和耗时仍需 matched benchmark。
