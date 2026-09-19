@@ -89,6 +89,7 @@ After fitting, `model.equations_` exposes the discovered equation frontier, whil
 | Formula types | `empirical`, `semi_theoretical`, and `theoretical` modes for progressively stronger dimensional contracts. |
 | Dimensional analysis | Optional `X_dimensions` and `y_dimensions` metadata for hard backend checks in constrained workflows. |
 | Automated feature engineering | An opt-in AI-Feynman-inspired surrogate branch and an opt-in FEAT-like feature-bundle branch. |
+| Search-surrogate evaluation | An opt-in `search_surrogate_*` bridge for MySRCore's conservative KNN evaluation gate; disabled by default and separate from `surrogate_engine`. |
 | Initialization | User `guesses` plus optional RNN-GPSR proposals before the formal MySRCore search. |
 | Export | Callable, SymPy, NumPy, JAX, and PyTorch representations where supported by the configured expression. |
 
