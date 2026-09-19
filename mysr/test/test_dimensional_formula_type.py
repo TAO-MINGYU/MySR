@@ -53,6 +53,46 @@ def test_mutation_affinity_rejects_invalid_values(kwargs):
         MySRRegressor(**kwargs)
 
 
+def test_search_surrogate_is_public_and_maps_to_backend_namespace():
+    model = MySRRegressor(
+        search_surrogate_enabled=True,
+        search_surrogate_model="knn",
+        search_surrogate_warmup_evals=5,
+        search_surrogate_true_eval_fraction=0.4,
+        search_surrogate_exploration_fraction=0.1,
+        search_surrogate_uncertainty_scale=0.3,
+        search_surrogate_reject_margin=0.07,
+        search_surrogate_probe_size=12,
+        search_surrogate_neighbors=3,
+        search_surrogate_max_samples=99,
+    )
+    params = model.get_params()
+    assert params["search_surrogate_enabled"] is True
+    backend = model._search_surrogate_backend_options()
+    assert backend["surrogate_enabled"] is True
+    assert str(backend["surrogate_model"]) == "knn"
+    assert backend["surrogate_warmup_evals"] == 5
+    assert backend["surrogate_probe_size"] == 12
+    assert backend["surrogate_neighbors"] == 3
+    assert backend["surrogate_max_samples"] == 99
+    assert backend["surrogate_reject_margin"] == pytest.approx(0.07)
+    model._validate_and_modify_params()
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"search_surrogate_model": "invalid"},
+        {"search_surrogate_warmup_evals": 0},
+        {"search_surrogate_true_eval_fraction": 1.1},
+        {"search_surrogate_uncertainty_scale": -0.1},
+    ],
+)
+def test_search_surrogate_rejects_invalid_values(kwargs):
+    with pytest.raises((ValueError, TypeError), match="search_surrogate"):
+        MySRRegressor(**kwargs)._validate_and_modify_params()
+
+
 def test_semi_theoretical_is_a_public_formula_type():
     model = MySRRegressor(formula_type="semi_theoretical")
     assert model.formula_type == "semi_theoretical"

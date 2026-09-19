@@ -335,3 +335,72 @@
 - **Verification**：新四组 array/reducer `32696/32697`、`32702/32703`、`32708/32709`、
   `32714/32715` 已提交，首批 array elements 均在 node2 运行。
 - **Unknown**：搜索尚未完成，前端参数对 HOF、测试误差和资源的影响待 reducer 产物验证。
+## 2026-09-18 - Uncertainty-aware objective bridge
+
+- **Decision**：feature branch `feature/uncertainty-loss-v1` 增加 `loss_preset`、`uncertainty_mode`、`robust_delta`、`student_nu` 及 `fit` 的 `sigma`/`sigma_minus`/`sigma_plus` 输入；log-space residual 不在范围内。
+- **Confirmed**：Python 端验证模式、正数和形状，拒绝 weights 与 uncertainty 混用；通过 `Dataset.extra` 桥接到 MySRCore。自动 feature engineering、denoise 和 TypeSpec 对 uncertainty 明确拒绝。
+- **Historical verification (superseded 2026-09-18)**：当时 uncertainty bridge `3 passed`、RNN/migration `57 passed`，TypeSpec 仍有 3 个 worker/TemplateExpression 失败；后续 audit 已以 TypeSpec `51 passed`、`39 subtests passed` 取代该残余记录。
+- **Unknown**：尚无匹配预算 benchmark 或搜索质量提升证据；未 push。
+
+## 2026-09-18 - Frontend audit and cross-environment smoke
+
+- **Confirmed**：本轮没有向 MySR tracked source 写入修改；当前工作分支保留用户已有
+  `outputs/` 未跟踪内容。现有 `loss_preset`、`uncertainty_mode` 和 sigma 输入桥接与
+  MySRCore 修复提交 `e966720` 对齐。
+- **Verification**：uncertainty bridge `3 passed`、RNN/migration `57 passed`、TypeSpec
+  `51 passed` 和 `39 subtests passed`；`ruff check mysr`、`python -m compileall -q mysr`
+  通过。量纲/feature-engineering 套件另通过 `88 passed`；pipeline 在可选 Bumper 之前
+  的 19 项通过；startup/slurm/juliapkg 小套件 `8 passed, 1 skipped`。Carbon 独立
+  run-local project 使用同步源码完成 1-iteration serial asymmetric likelihood smoke，
+  产生 1 条 equation。
+- **Environment limitation**：全量 405 项 pytest 尝试中，Zygote/Bumper optional package
+  在临时 Julia project registry 中不可解析，`test_dev` 需要但当前 WSL 不存在 Docker CLI，
+  notebook test 缺少 `pytest --nbval` 插件；这些是环境阻断，不是 MySR bridge 源码失败。
+  全量运行在长耗时阶段手动停止，不能标记为 405/405 全部通过。
+- **Decision**：不为环境问题修改源码或安装全局依赖；后续若要宣称全套通过，应先在具备
+  Zygote registry 和 Docker 的隔离环境中重跑。
+
+## 2026-09-18 - Authorized dependency recovery and bounded full-suite run
+
+- **Decision**：按用户授权，只在 `env_mysr` 与其隔离测试项目中补齐测试依赖；不修改
+  MySR tracked source，不提交 `mysr/test/outputs/` 或根目录 `outputs/`。
+- **Confirmed**：`nbval 0.11.0` 已安装到 `/home/taomingyu/miniconda3/envs/env_mysr`；
+  `python -m pip check` 无依赖冲突。Julia 测试项目为
+  `$CONDA_PREFIX/test_support/loss-audit-20260918/project`，写入 depot 为同名
+  `depot`，Julia 1.10.3 使用 `MySRCore` 当前 checkout；Bumper 0.6.0、Zygote 0.7.12、
+  LoopVectorization 0.12.174、TensorBoardLogger 0.1.26、SlurmClusterManager 1.1.0
+  和 ClusterManagers 2.0.0 已通过官方 registry 解析并预编译。
+- **Verification**：`test_autodiff.py` 与 `test_startup.py` 共 `8 passed`；pytest
+  `--collect-only` 收集 `405 tests`。Docker Engine 29.8.1、buildx 0.37.1 在 WSL
+  安装并启动，官方 `hello-world` 镜像经 daemon 代理成功拉取运行。
+- **Environment limitation**：完整 `pytest -q mysr/test` 已启动并运行约 67 分钟，用户因
+  计算资源达到上限要求停止；进程以 `143` 退出，不能宣称 `405/405` 或给出完整最终失败
+  分组。当前环境仍未安装 `jax`/`tensorboard`，后续若要覆盖对应测试需单独补齐。
+- **Reproduction**：先 `conda activate env_mysr`，设置
+  `PYTHON_JULIACALL_PROJECT`、`PYTHON_JULIAPKG_PROJECT` 指向上述 project，设置
+  `JULIA_DEPOT_PATH="$CONDA_PREFIX/test_support/loss-audit-20260918/depot:$CONDA_PREFIX/julia_depot"`、
+  `JULIA_PKG_OFFLINE=false`、`PYTHON_JULIAPKG_OFFLINE=false`，然后运行
+  `pytest -q mysr/test`；Docker 用例需在新 shell 或 `sg docker -c` 下运行。
+
+## 2026-09-18 - Integrate loss-audit branch into canonical main
+
+- **Decision**：将 `feature/loss-audit-quality-20260918` 快进合并到本仓库 `main`；该 feature 相对 `main` 领先 6 个提交且 `main` 是其祖先，因此不制造额外合并提交。
+- **Confirmed**：本地 `main` 与 `origin/main` 均指向 `ec34f82`；已删除本地及远程 `feature/loss-audit-quality-20260918`，并保留 `backup/pre-main-merge-loss-audit-20260918` 与 `backup/pre-feature-delete-loss-audit-20260918`。
+- **Verification**：合并后 Python `py_compile`（`sr.py`、`type_specs.py`、uncertainty loss 测试）和 `git diff --check` 通过；`main` 已成功推送。
+- **Scope**：独立的 `worktrees/parent-selection/MySR` 及其 `worktree/parent-selection-20260918` 分支未修改、未删除。
+
+## 2026-09-19 - Public Python bridge for search surrogate
+
+- **Decision**：在隔离 surrogate worktree 中公开 `search_surrogate_*` 参数，并与已有的
+  feature-engineering `surrogate_engine` 参数保持独立命名。默认关闭，显式开启后才向
+  MySRCore `Options` 转发 KNN、warmup、真实评估比例、探索比例、不确定度、probe、邻居数和
+  样本上限配置。
+- **Confirmed**：`MySRRegressor` 完成参数保存、范围/类型校验和 Julia `Symbol` 模型名映射；
+  新增回归覆盖 public attributes、Options mapping 与非法值拒绝。
+- **Confirmed**：surrogate 关闭时不向 backend 发送新增 keyword，保持旧版 MySRCore 的默认
+  路径兼容；只有显式开启时才发送 surrogate Options。
+- **修改路径**：`mysr/sr.py`、`mysr/test/test_dimensional_formula_type.py`。
+- **Verification**：env_mysr 配合临时可写 JuliaCall project/depot，并将 backend path 指向
+  surrogate MySRCore worktree，目标测试 `24 passed`；直接使用 canonical backend 时的未知
+  keyword 失败确认了 path 选择必须显式记录。
+- **Unknown**：参数对搜索耗时、恢复率和真实 evaluations 的影响尚未 benchmark。
