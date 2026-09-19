@@ -404,3 +404,18 @@
   surrogate MySRCore worktree，目标测试 `24 passed`；直接使用 canonical backend 时的未知
   keyword 失败确认了 path 选择必须显式记录。
 - **Unknown**：参数对搜索耗时、恢复率和真实 evaluations 的影响尚未 benchmark。
+
+## 2026-09-19 - Sync canonical surrogate main into parent-selection worktree
+
+- **Decision**：将 canonical `main` 的 surrogate、uncertainty-loss、worker-path 和 TypeSpec
+  改动合入 `worktree/parent-selection-20260918`，并保留 parent/survival bridge；不修改
+  canonical `main`、其他 worktree 或用户未跟踪输出。
+- **Confirmed**：合并提交为 `8a5730f`；备份引用为
+  `backup/pre-surrogate-parent-selection-sync-20260919`。最终 Python bridge 同时包含
+  `parent_selection`/`survival_strategy` 与 `search_surrogate_*` 参数，默认行为保持兼容。
+- **Verification**：`python -m compileall -q mysr`、目标文件 Ruff 和 `git diff --check` 通过；
+  合并涉及的两个测试文件共 `24 passed`；前端组合 fit（epsilon-lexicase + AFP + search
+  surrogate）成功返回 equation。测试使用 `env_mysr` 和隔离可写 Julia project/depot，
+  backend path 指向对应 MySRCore parent-selection worktree。
+- **Unknown**：完整 Python 405 项本轮未运行；search surrogate 与 parent-selection 的大规模
+  质量/吞吐收益仍需匹配 benchmark，不能由本次 smoke 推断。
