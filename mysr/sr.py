@@ -716,6 +716,35 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     feature_affinity : array-like | None
         Optional square feature replacement weight matrix. It must match the number
         of features used by a mutation.
+    search_surrogate_enabled : bool
+        Enable the candidate-evaluation surrogate gate in MySRCore. This is
+        separate from the feature-engineering ``surrogate_engine``. Default is
+        ``False``.
+    search_surrogate_model : {"knn"}
+        Candidate-evaluation surrogate model family. Default is ``"knn"``.
+    search_surrogate_warmup_evals : int
+        Number of real evaluations required before rejection is allowed.
+        Default is ``32``.
+    search_surrogate_true_eval_fraction : float
+        Minimum fraction of proposed candidates that receive real evaluation.
+        Default is ``0.25``.
+    search_surrogate_exploration_fraction : float
+        Probability of exploring a candidate despite the surrogate prediction.
+        Default is ``0.15``.
+    search_surrogate_uncertainty_scale : float
+        Relative uncertainty threshold for forcing a real evaluation. Default is
+        ``0.25``.
+    search_surrogate_reject_margin : float
+        Relative margin required before a candidate can be rejected. Default is
+        ``0.05``.
+    search_surrogate_probe_size : int
+        Number of deterministic data rows used for candidate phenotypes.
+        Default is ``64``.
+    search_surrogate_neighbors : int
+        Maximum number of true-evaluation neighbors used by KNN. Default is ``8``.
+    search_surrogate_max_samples : int
+        Maximum number of real observations retained in a shared snapshot.
+        Default is ``2048``.
     use_frequency : bool
         Whether to measure the frequency of complexities, and use that
         instead of parsimony to explore equation space. Will naturally
@@ -1292,6 +1321,16 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         mutation_affinity_exploration: float = 0.2,
         operator_affinity: Mapping[int, ArrayLike] | None = None,
         feature_affinity: ArrayLike | None = None,
+        search_surrogate_enabled: bool = False,
+        search_surrogate_model: Literal["knn"] = "knn",
+        search_surrogate_warmup_evals: int = 32,
+        search_surrogate_true_eval_fraction: float = 0.25,
+        search_surrogate_exploration_fraction: float = 0.15,
+        search_surrogate_uncertainty_scale: float = 0.25,
+        search_surrogate_reject_margin: float = 0.05,
+        search_surrogate_probe_size: int = 64,
+        search_surrogate_neighbors: int = 8,
+        search_surrogate_max_samples: int = 2048,
         use_frequency: bool = True,
         use_frequency_in_tournament: bool = True,
         adaptive_parsimony_scaling: float = 1040.0,
@@ -1510,6 +1549,16 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         self.mutation_affinity_exploration = mutation_affinity_exploration
         self.operator_affinity = operator_affinity
         self.feature_affinity = feature_affinity
+        self.search_surrogate_enabled = search_surrogate_enabled
+        self.search_surrogate_model = search_surrogate_model
+        self.search_surrogate_warmup_evals = search_surrogate_warmup_evals
+        self.search_surrogate_true_eval_fraction = search_surrogate_true_eval_fraction
+        self.search_surrogate_exploration_fraction = search_surrogate_exploration_fraction
+        self.search_surrogate_uncertainty_scale = search_surrogate_uncertainty_scale
+        self.search_surrogate_reject_margin = search_surrogate_reject_margin
+        self.search_surrogate_probe_size = search_surrogate_probe_size
+        self.search_surrogate_neighbors = search_surrogate_neighbors
+        self.search_surrogate_max_samples = search_surrogate_max_samples
         self.use_frequency = use_frequency
         self.use_frequency_in_tournament = use_frequency_in_tournament
         self.adaptive_parsimony_scaling = adaptive_parsimony_scaling
@@ -2293,6 +2342,33 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             raise ValueError(
                 "uncertainty-aware presets cannot be combined with a custom loss function"
             )
+        if not isinstance(self.search_surrogate_enabled, bool):
+            raise TypeError("search_surrogate_enabled must be a bool")
+        if self.search_surrogate_model != "knn":
+            raise ValueError("search_surrogate_model must be 'knn'")
+        for name in (
+            "search_surrogate_warmup_evals",
+            "search_surrogate_probe_size",
+            "search_surrogate_neighbors",
+            "search_surrogate_max_samples",
+        ):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, np.integer)) or value < 1:
+                raise ValueError(f"{name} must be a positive integer")
+        for name in (
+            "search_surrogate_true_eval_fraction",
+            "search_surrogate_exploration_fraction",
+        ):
+            value = float(getattr(self, name))
+            if not np.isfinite(value) or not 0.0 <= value <= 1.0:
+                raise ValueError(f"{name} must be finite and in [0, 1]")
+        for name in (
+            "search_surrogate_uncertainty_scale",
+            "search_surrogate_reject_margin",
+        ):
+            value = float(getattr(self, name))
+            if not np.isfinite(value) or value < 0.0:
+                raise ValueError(f"{name} must be finite and non-negative")
         legacy_mutation_weights_used = any(
             getattr(self, parameter) is not None
             for parameter in _LEGACY_MUTATION_PARAMETERS
@@ -3071,6 +3147,28 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
         return X, y, variable_names, complexity_of_variables, X_dimensions, y_dimensions
 
+    def _search_surrogate_backend_options(self) -> dict[str, Any]:
+        """Translate the Python search-surrogate namespace to MySRCore names."""
+
+        return {
+            "surrogate_enabled": self.search_surrogate_enabled,
+            "surrogate_model": jl.Symbol(self.search_surrogate_model),
+            "surrogate_warmup_evals": int(self.search_surrogate_warmup_evals),
+            "surrogate_true_eval_fraction": float(
+                self.search_surrogate_true_eval_fraction
+            ),
+            "surrogate_exploration_fraction": float(
+                self.search_surrogate_exploration_fraction
+            ),
+            "surrogate_uncertainty_scale": float(
+                self.search_surrogate_uncertainty_scale
+            ),
+            "surrogate_reject_margin": float(self.search_surrogate_reject_margin),
+            "surrogate_probe_size": int(self.search_surrogate_probe_size),
+            "surrogate_neighbors": int(self.search_surrogate_neighbors),
+            "surrogate_max_samples": int(self.search_surrogate_max_samples),
+        }
+
     def _run(
         self,
         X: ndarray,
@@ -3451,6 +3549,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             )
             else {}
         )
+        search_surrogate_options = self._search_surrogate_backend_options()
         population_migration_options: dict[str, Any] = {}
         if self.population_profiles is not None:
             julia_profiles = []
@@ -3592,6 +3691,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             define_helper_functions=False,
             **backend_formula_options,
             **mutation_affinity_options,
+            **search_surrogate_options,
             **population_migration_options,
             **rnn_gpsr_options,
         )

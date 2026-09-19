@@ -361,3 +361,17 @@
 - **Confirmed**：本地 `main` 与 `origin/main` 均指向 `ec34f82`；已删除本地及远程 `feature/loss-audit-quality-20260918`，并保留 `backup/pre-main-merge-loss-audit-20260918` 与 `backup/pre-feature-delete-loss-audit-20260918`。
 - **Verification**：合并后 Python `py_compile`（`sr.py`、`type_specs.py`、uncertainty loss 测试）和 `git diff --check` 通过；`main` 已成功推送。
 - **Scope**：独立的 `worktrees/parent-selection/MySR` 及其 `worktree/parent-selection-20260918` 分支未修改、未删除。
+
+## 2026-09-19 - Public Python bridge for search surrogate
+
+- **Decision**：在隔离 surrogate worktree 中公开 `search_surrogate_*` 参数，并与已有的
+  feature-engineering `surrogate_engine` 参数保持独立命名。默认关闭，显式开启后才向
+  MySRCore `Options` 转发 KNN、warmup、真实评估比例、探索比例、不确定度、probe、邻居数和
+  样本上限配置。
+- **Confirmed**：`MySRRegressor` 完成参数保存、范围/类型校验和 Julia `Symbol` 模型名映射；
+  新增回归覆盖 public attributes、Options mapping 与非法值拒绝。
+- **修改路径**：`mysr/sr.py`、`mysr/test/test_dimensional_formula_type.py`。
+- **Verification**：env_mysr 配合临时可写 JuliaCall project/depot，并将 backend path 指向
+  surrogate MySRCore worktree，目标测试 `24 passed`；直接使用 canonical backend 时的未知
+  keyword 失败确认了 path 选择必须显式记录。
+- **Unknown**：参数对搜索耗时、恢复率和真实 evaluations 的影响尚未 benchmark。
