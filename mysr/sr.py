@@ -807,6 +807,17 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     rnn_gpsr_proposal_count : int
         Number of expression individuals requested from the recurrent generator
         per feedback round. Default is `160`.
+    rnn_gpsr_populations : int
+        Number of independent lightweight GPSR populations used within each
+        RNN-GPSR feedback round. Default is `1`.
+    rnn_gpsr_population_size : int
+        Number of members in each lightweight GPSR population. Default is `8`.
+    rnn_gpsr_niterations : int
+        Number of lightweight GPSR iterations per population and feedback round.
+        Default is `1`.
+    rnn_gpsr_ncycles_per_iteration : int
+        Number of regularized-evolution cycles in each lightweight GPSR
+        iteration. Default is `4`.
     rnn_hidden_size : int
         Hidden-state width of the PyTorch recurrent generator. Default is `32`.
     rnn_cell : {"lstm", "gru"}
@@ -855,9 +866,10 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     rnn_replay_fraction : float
         Fraction of each proposal batch reserved for the best known training
         sequences (elitist replay). Default is `0.25`.
-    rnn_gpsr_cycles : int
-        Number of lightweight GP-SR cycles per RNN/GPSR feedback round.
-        Default is `4`.
+    rnn_gpsr_cycles : int | None
+        Deprecated compatibility alias for
+        `rnn_gpsr_ncycles_per_iteration`. If both names are supplied they must
+        have the same value.
     rnn_gpsr_rounds : int
         Number of RNN → GP-SR → feedback rounds. Default is `3`.
     rnn_gpsr_feedback_fraction : float
@@ -982,11 +994,12 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         expressions, sorted by loss.
         Default is `0.982`.
     parent_selection : Literal["tournament", "epsilon_lexicase"]
-        Parent-selection policy. ``"tournament"`` preserves the default
-        scalar-cost tournament; ``"epsilon_lexicase"`` selects parents from
-        per-case errors for built-in losses, including uncertainty-aware
-        presets, when batching and custom aggregate objectives are disabled.
-        Default is ``"tournament"``.
+        Parent-selection policy. ``"epsilon_lexicase"`` is the current
+        default and selects parents from per-case errors for built-in losses,
+        including uncertainty-aware presets, when batching and custom
+        aggregate objectives are disabled. ``"tournament"`` remains available
+        as an explicit scalar-cost policy. Unsupported objectives safely fall
+        back to tournament selection at runtime.
     survival_strategy : Literal[
         "regularized_evolution", "age_fitness_pareto", "competitive_age_fitness"
     ]
@@ -995,7 +1008,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         Age-Fitness Pareto survival to parent and offspring candidates;
         ``"competitive_age_fitness"`` first compares each child with its parent,
         then applies age-fitness survival with structural duplicate suppression.
-        Default is ``"regularized_evolution"``.
+        Default is ``"age_fitness_pareto"``.
     parallelism: Literal["serial", "multithreading", "multiprocessing"] | None
         Parallelism to use for the search. Can be `"serial"`, `"multithreading"`, or `"multiprocessing"`.
         Default is `"multithreading"`.
@@ -1364,6 +1377,10 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         rnn_gpsr_seed_fraction: float = 0.5,
         rnn_gpsr_candidate_count: int = 160,
         rnn_gpsr_proposal_count: int = 160,
+        rnn_gpsr_populations: int = 1,
+        rnn_gpsr_population_size: int = 8,
+        rnn_gpsr_niterations: int = 1,
+        rnn_gpsr_ncycles_per_iteration: int | None = None,
         rnn_hidden_size: int = 32,
         rnn_cell: Literal["lstm", "gru"] = "lstm",
         rnn_embedding_size: int = 16,
@@ -1384,7 +1401,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         rnn_sampling_top_k: int = 0,
         rnn_sampling_top_p: float = 1.0,
         rnn_replay_fraction: float = 0.25,
-        rnn_gpsr_cycles: int = 4,
+        rnn_gpsr_cycles: int | None = None,
         rnn_gpsr_rounds: int = 3,
         rnn_gpsr_feedback_fraction: float = 0.2,
         rnn_gpsr_quality_gate: bool = True,
@@ -1421,10 +1438,10 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         probability_negate_constant: float = 0.00743,
         tournament_selection_n: int = 15,
         tournament_selection_p: float = 0.982,
-        parent_selection: Literal["tournament", "epsilon_lexicase"] = "tournament",
+        parent_selection: Literal["tournament", "epsilon_lexicase"] = "epsilon_lexicase",
         survival_strategy: Literal[
             "regularized_evolution", "age_fitness_pareto", "competitive_age_fitness"
-        ] = "regularized_evolution",
+        ] = "age_fitness_pareto",
         parallelism: (
             Literal["serial", "multithreading", "multiprocessing"] | None
         ) = None,
@@ -1679,6 +1696,23 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         self.rnn_gpsr_seed_fraction = rnn_gpsr_seed_fraction
         self.rnn_gpsr_candidate_count = rnn_gpsr_candidate_count
         self.rnn_gpsr_proposal_count = rnn_gpsr_proposal_count
+        self.rnn_gpsr_populations = rnn_gpsr_populations
+        self.rnn_gpsr_population_size = rnn_gpsr_population_size
+        self.rnn_gpsr_niterations = rnn_gpsr_niterations
+        if rnn_gpsr_ncycles_per_iteration is None:
+            rnn_gpsr_ncycles_per_iteration = (
+                4 if rnn_gpsr_cycles is None else rnn_gpsr_cycles
+            )
+        elif rnn_gpsr_cycles is not None and (
+            rnn_gpsr_ncycles_per_iteration != rnn_gpsr_cycles
+        ):
+            raise ValueError(
+                "`rnn_gpsr_cycles` and `rnn_gpsr_ncycles_per_iteration` "
+                "must match when both are provided"
+            )
+        self.rnn_gpsr_ncycles_per_iteration = rnn_gpsr_ncycles_per_iteration
+        # Keep the old attribute visible to sklearn-style get_params/cloning.
+        self.rnn_gpsr_cycles = rnn_gpsr_ncycles_per_iteration
         self.rnn_hidden_size = rnn_hidden_size
         self.rnn_cell = rnn_cell
         self.rnn_embedding_size = rnn_embedding_size
@@ -1699,7 +1733,6 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         self.rnn_sampling_top_k = rnn_sampling_top_k
         self.rnn_sampling_top_p = rnn_sampling_top_p
         self.rnn_replay_fraction = rnn_replay_fraction
-        self.rnn_gpsr_cycles = rnn_gpsr_cycles
         self.rnn_gpsr_rounds = rnn_gpsr_rounds
         self.rnn_gpsr_feedback_fraction = rnn_gpsr_feedback_fraction
         self.rnn_gpsr_quality_gate = rnn_gpsr_quality_gate
@@ -2498,6 +2531,25 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             raise ValueError("`rnn_gpsr_candidate_count` must be at least 8")
         if self.rnn_gpsr_proposal_count < 1:
             raise ValueError("`rnn_gpsr_proposal_count` must be positive")
+        for name in (
+            "rnn_gpsr_populations",
+            "rnn_gpsr_population_size",
+            "rnn_gpsr_niterations",
+            "rnn_gpsr_ncycles_per_iteration",
+        ):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
+                raise TypeError(f"`{name}` must be an integer")
+        if self.rnn_gpsr_populations < 1:
+            raise ValueError("`rnn_gpsr_populations` must be positive")
+        if self.rnn_gpsr_population_size < 1:
+            raise ValueError("`rnn_gpsr_population_size` must be positive")
+        if self.rnn_gpsr_niterations < 1:
+            raise ValueError("`rnn_gpsr_niterations` must be positive")
+        if self.rnn_gpsr_ncycles_per_iteration < 0:
+            raise ValueError(
+                "`rnn_gpsr_ncycles_per_iteration` must be non-negative"
+            )
         if self.rnn_hidden_size < 1:
             raise ValueError("`rnn_hidden_size` must be positive")
         if self.rnn_cell not in ("lstm", "gru"):
@@ -2542,8 +2594,6 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             raise ValueError("`rnn_replay_fraction` must be in [0, 1]")
         if self.rnn_elite_supervision_weight < 0:
             raise ValueError("`rnn_elite_supervision_weight` must be non-negative")
-        if self.rnn_gpsr_cycles < 0:
-            raise ValueError("`rnn_gpsr_cycles` must be non-negative")
         if self.rnn_gpsr_rounds < 1:
             raise ValueError("`rnn_gpsr_rounds` must be positive")
         if not 0.0 <= self.rnn_gpsr_feedback_fraction <= 1.0:
@@ -3647,7 +3697,10 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 "rnn_gpsr_seed_fraction": self.rnn_gpsr_seed_fraction,
                 "rnn_gpsr_candidate_count": self.rnn_gpsr_candidate_count,
                 "rnn_gpsr_proposal_count": self.rnn_gpsr_proposal_count,
-                "rnn_gpsr_cycles": self.rnn_gpsr_cycles,
+                "rnn_gpsr_populations": self.rnn_gpsr_populations,
+                "rnn_gpsr_population_size": self.rnn_gpsr_population_size,
+                "rnn_gpsr_niterations": self.rnn_gpsr_niterations,
+                "rnn_gpsr_ncycles_per_iteration": self.rnn_gpsr_ncycles_per_iteration,
                 "rnn_gpsr_rounds": self.rnn_gpsr_rounds,
                 "rnn_gpsr_feedback_fraction": self.rnn_gpsr_feedback_fraction,
                 "rnn_gpsr_quality_gate": self.rnn_gpsr_quality_gate,
@@ -4027,6 +4080,16 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             if python_rnn_generator is not None
             else []
         )
+        for diagnostic in self.rnn_gpsr_diagnostics_:
+            diagnostic.setdefault("lightweight_populations", self.rnn_gpsr_populations)
+            diagnostic.setdefault(
+                "lightweight_population_size", self.rnn_gpsr_population_size
+            )
+            diagnostic.setdefault("lightweight_niterations", self.rnn_gpsr_niterations)
+            diagnostic.setdefault(
+                "lightweight_ncycles_per_iteration",
+                self.rnn_gpsr_ncycles_per_iteration,
+            )
 
         ALREADY_RAN = True
 

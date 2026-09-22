@@ -466,3 +466,41 @@
   Ruff、Python 编译和 `git diff --check` 通过。
 - Unknown：Phase 2 递归 MySRCore 子问题/HOF 回代与 matched benchmark 的 recovery、泛化和
   资源收益仍未验证，本次不作性能结论。
+## 2026-09-22 - Align Python defaults with MySRCore v2 policy
+
+- **Decision**：`MySRRegressor()` 默认使用 `parent_selection="epsilon_lexicase"` 和
+  `survival_strategy="age_fitness_pareto"`；显式旧策略仍通过参数校验和 Julia bridge 保留。
+- **Fallback**：backend 在 batching 或不可拆分 custom objective 下继续安全回退 tournament，
+  Python 文档明确说明 requested/effective 可能不同。
+- **Verification**：策略、population migration、uncertainty focused tests `10 passed`；
+  default backend smoke 确认 Python 与 Julia Options 均收到 lexicase + AFP；`compileall` 和
+  `git diff --check` 通过。
+- **Unknown**：完整 Python 405 项套件与 matched P/M benchmark 尚未运行。
+
+## 2026-09-22 - Isolate RNN-GPSR lightweight GPSR budget
+
+- **Decision**：RNN-GPSR now exposes independent `rnn_gpsr_populations`,
+  `rnn_gpsr_population_size`, `rnn_gpsr_niterations`, and
+  `rnn_gpsr_ncycles_per_iteration` controls. Defaults are `1`, `8`, `1`, and `4`;
+  the formal MySRCore population, population size, iterations, cycles, and migration
+  settings are not reused by the lightweight stage.
+- **Compatibility**：The previous `rnn_gpsr_cycles` parameter remains a normalized
+  alias. Supplying both names with different values raises a clear `ValueError`.
+  The new values are validated and forwarded only when RNN-GPSR is enabled; fit
+  diagnostics report the effective lightweight budget.
+- **Quality fixes**：The backend seed pool uses independent deterministic streams
+  and forked plugin state per lightweight population, bounds and de-duplicates seed
+  pools, and clamps tournament samples when a lightweight population is smaller than
+  the formal tournament size. New settings are listed in parameter groupings and docs.
+- **Verification**：Before canonical synchronization, the focused RNN-GPSR suite
+  passed (`59 passed`), the population/dimensional bridge suite passed (`25 passed`),
+  Python compilation and clone smoke passed, and the paired MySRCore test suite passed
+  under Julia 1.10.3 with an isolated writable depot/project. Final post-sync checks
+  are recorded after re-running the affected suites.
+- **Unknown**：Matched P/M benchmark quality, throughput, and evaluation-count effects
+  remain to be measured; this change does not claim a general performance gain.
+
+## 2026-09-22 - RNN-GPSR post-sync verification
+
+- **Follow-up**：canonical default-policy changes were merged into this feature worktree before validation. The parameter grouping manifest was completed for the existing loss, uncertainty, feature-engineering, affinity, and search-surrogate parameters exposed by the current constructor.
+- **Verification**：RNN-GPSR, population migration, and dimensional bridge tests passed (`84 passed`); the parameter grouping completeness test passed (`1 passed`); `python -m compileall -q mysr` and `git diff --check` passed.

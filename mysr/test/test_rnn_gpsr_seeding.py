@@ -386,7 +386,10 @@ def test_user_guesses_survive_ai_feynman_and_rnn_gpsr() -> None:
         rnn_gpsr_seeding=True,
         rnn_gpsr_candidate_count=8,
         rnn_gpsr_proposal_count=8,
-        rnn_gpsr_cycles=1,
+        rnn_gpsr_populations=1,
+        rnn_gpsr_population_size=4,
+        rnn_gpsr_niterations=2,
+        rnn_gpsr_ncycles_per_iteration=1,
         rnn_gpsr_rounds=1,
         rnn_epochs=2,
         rnn_patience=1,
@@ -413,6 +416,12 @@ def test_user_guesses_survive_ai_feynman_and_rnn_gpsr() -> None:
         for equation in model.equations_["equation"]
     )
     assert model.rnn_gpsr_diagnostics_[-1]["formula_type"] == "empirical"
+    assert model.rnn_gpsr_diagnostics_[-1]["lightweight_populations"] == 1
+    assert model.rnn_gpsr_diagnostics_[-1]["lightweight_population_size"] == 4
+    assert model.rnn_gpsr_diagnostics_[-1]["lightweight_niterations"] == 2
+    assert (
+        model.rnn_gpsr_diagnostics_[-1]["lightweight_ncycles_per_iteration"] == 1
+    )
 
 
 def test_rnn_gpsr_defaults_preserve_existing_initialization() -> None:
@@ -429,6 +438,11 @@ def test_rnn_gpsr_defaults_preserve_existing_initialization() -> None:
     assert model.get_params()["rnn_replay_fraction"] == pytest.approx(0.25)
     assert model.get_params()["rnn_gpsr_quality_gate"] is True
     assert model.get_params()["rnn_gpsr_feedback_fraction"] == pytest.approx(0.2)
+    assert model.get_params()["rnn_gpsr_populations"] == 1
+    assert model.get_params()["rnn_gpsr_population_size"] == 8
+    assert model.get_params()["rnn_gpsr_niterations"] == 1
+    assert model.get_params()["rnn_gpsr_ncycles_per_iteration"] == 4
+    assert model.get_params()["rnn_gpsr_cycles"] == 4
     model._validate_and_modify_params()
 
 
@@ -438,6 +452,10 @@ def test_rnn_gpsr_defaults_preserve_existing_initialization() -> None:
         ("rnn_gpsr_seed_fraction", 1.1),
         ("rnn_gpsr_candidate_count", 7),
         ("rnn_gpsr_proposal_count", 0),
+        ("rnn_gpsr_populations", 0),
+        ("rnn_gpsr_population_size", 0),
+        ("rnn_gpsr_niterations", 0),
+        ("rnn_gpsr_ncycles_per_iteration", -1),
         ("rnn_hidden_size", 0),
         ("rnn_cell", "rnn"),
         ("rnn_embedding_size", 0),
@@ -469,3 +487,23 @@ def test_rnn_gpsr_parameter_validation(parameter: str, value: object) -> None:
 
     with pytest.raises(ValueError):
         model._validate_and_modify_params()
+
+
+def test_rnn_gpsr_cycles_compatibility_alias() -> None:
+    legacy = MySRRegressor(rnn_gpsr_cycles=2)
+    assert legacy.rnn_gpsr_ncycles_per_iteration == 2
+    assert legacy.rnn_gpsr_cycles == 2
+    legacy._validate_and_modify_params()
+
+    explicit = MySRRegressor(
+        rnn_gpsr_cycles=3,
+        rnn_gpsr_ncycles_per_iteration=3,
+    )
+    assert explicit.rnn_gpsr_ncycles_per_iteration == 3
+    explicit._validate_and_modify_params()
+
+    with pytest.raises(ValueError, match="must match"):
+        MySRRegressor(
+            rnn_gpsr_cycles=2,
+            rnn_gpsr_ncycles_per_iteration=3,
+        )
