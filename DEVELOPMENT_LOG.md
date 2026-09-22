@@ -458,3 +458,26 @@
   default backend smoke 确认 Python 与 Julia Options 均收到 lexicase + AFP；`compileall` 和
   `git diff --check` 通过。
 - **Unknown**：完整 Python 405 项套件与 matched P/M benchmark 尚未运行。
+
+## 2026-09-22 - Isolate RNN-GPSR lightweight GPSR budget
+
+- **Decision**：RNN-GPSR now exposes independent `rnn_gpsr_populations`,
+  `rnn_gpsr_population_size`, `rnn_gpsr_niterations`, and
+  `rnn_gpsr_ncycles_per_iteration` controls. Defaults are `1`, `8`, `1`, and `4`;
+  the formal MySRCore population, population size, iterations, cycles, and migration
+  settings are not reused by the lightweight stage.
+- **Compatibility**：The previous `rnn_gpsr_cycles` parameter remains a normalized
+  alias. Supplying both names with different values raises a clear `ValueError`.
+  The new values are validated and forwarded only when RNN-GPSR is enabled; fit
+  diagnostics report the effective lightweight budget.
+- **Quality fixes**：The backend seed pool uses independent deterministic streams
+  and forked plugin state per lightweight population, bounds and de-duplicates seed
+  pools, and clamps tournament samples when a lightweight population is smaller than
+  the formal tournament size. New settings are listed in parameter groupings and docs.
+- **Verification**：Before canonical synchronization, the focused RNN-GPSR suite
+  passed (`59 passed`), the population/dimensional bridge suite passed (`25 passed`),
+  Python compilation and clone smoke passed, and the paired MySRCore test suite passed
+  under Julia 1.10.3 with an isolated writable depot/project. Final post-sync checks
+  are recorded after re-running the affected suites.
+- **Unknown**：Matched P/M benchmark quality, throughput, and evaluation-count effects
+  remain to be measured; this change does not claim a general performance gain.
