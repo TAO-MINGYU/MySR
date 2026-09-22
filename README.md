@@ -137,6 +137,24 @@ RNN-GPSR is an optional initial-population proposal mechanism. It does not repla
 python -m pip install "mysr[rnn]"
 ```
 
+The lightweight GPSR stage has its own bounded budget. When RNN-GPSR is enabled
+without overrides it uses one population of eight members, one iteration, and
+four evolution cycles per iteration. These settings are independent of the
+formal search budget; they can be changed with
+`rnn_gpsr_populations`, `rnn_gpsr_population_size`, `rnn_gpsr_niterations`, and
+`rnn_gpsr_ncycles_per_iteration`. The older `rnn_gpsr_cycles` name remains a
+compatibility alias for the last parameter.
+
+```python
+model = MySRRegressor(
+    rnn_gpsr_seeding=True,
+    rnn_gpsr_populations=2,
+    rnn_gpsr_population_size=12,
+    rnn_gpsr_niterations=2,
+    rnn_gpsr_ncycles_per_iteration=6,
+)
+```
+
 ## Architecture
 
 <div align="center">

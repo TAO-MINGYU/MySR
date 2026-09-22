@@ -108,6 +108,10 @@
   - rnn_gpsr_seed_fraction
   - rnn_gpsr_candidate_count
   - rnn_gpsr_proposal_count
+  - rnn_gpsr_populations
+  - rnn_gpsr_population_size
+  - rnn_gpsr_niterations
+  - rnn_gpsr_ncycles_per_iteration
   - rnn_gpsr_cycles
   - rnn_gpsr_rounds
   - rnn_gpsr_feedback_fraction
