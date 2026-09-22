@@ -1162,7 +1162,7 @@ class FEATLikeFeatureEngineer:
         }
         return self
 
-    def transform(self, X: Any, *, augment: bool = True) -> NDArray[np.float64]:
+    def transform(self, X: Any) -> NDArray[np.float64]:
         """Replay the selected bundle on new rows."""
 
         if not hasattr(self, "n_features_in_"):
@@ -1172,7 +1172,7 @@ class FEATLikeFeatureEngineer:
             raise ValueError("X does not match the fitted feature shape")
         if not np.all(np.isfinite(values)):
             raise ValueError("X must contain only finite values")
-        if not augment or not self.accepted_proposals_:
+        if not self.accepted_proposals_:
             return values
         columns = [values]
         columns.extend(
@@ -1307,6 +1307,16 @@ class FeatureEngineeringEnsemble:
                 selected_signature_to_name[proposal_signature] = candidate_name
             else:
                 selected_signature_to_name[proposal_signature] = base_name
+            # The ensemble's accepted list is the injection contract for all
+            # feature engines.  Mark proposals selected here so their
+            # provenance records agree with the surrogate engine, whose
+            # archive may contain accepted candidates that were not injected
+            # because of the global feature budget.
+            proposal = replace(
+                proposal,
+                selected_for_injection=True,
+                selection_reason="selected",
+            )
             unique_proposals.append(proposal)
         self.accepted_proposals_ = unique_proposals
         self.proposals_ = list(self.accepted_proposals_)
@@ -1352,6 +1362,12 @@ class FeatureEngineeringEnsemble:
             "status": "ok",
             "algorithm": "mysr_dual_feature_engineering_v1",
             "accepted_count": len(self.accepted_proposals_),
+            "structural_gate_count": sum(
+                bool(proposal.structural_gate) for proposal in self.accepted_proposals_
+            ),
+            "utility_gate_count": sum(
+                bool(proposal.utility_gate) for proposal in self.accepted_proposals_
+            ),
             "candidate_count": sum(
                 len(getattr(engine, "proposals_", [])) for _, engine in engines
             ),
@@ -1407,13 +1423,13 @@ class FeatureEngineeringEnsemble:
         )
         return improvement, validation_score, 0.0, -complexity
 
-    def transform(self, X: Any, *, augment: bool = True) -> NDArray[np.float64]:
+    def transform(self, X: Any) -> NDArray[np.float64]:
         values = np.asarray(X, dtype=float)
         if values.ndim != 2 or values.shape[1] != self.n_features_in_:
             raise ValueError("X does not match the fitted feature shape")
         if not np.all(np.isfinite(values)):
             raise ValueError("X must contain only finite values")
-        if not augment or not self.accepted_proposals_:
+        if not self.accepted_proposals_:
             return values
         transformed = np.column_stack(
             [values]

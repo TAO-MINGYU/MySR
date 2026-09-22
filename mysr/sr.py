@@ -1179,10 +1179,11 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         the existing preprocessing path.
     feature_engineering_config : FeatureEngineeringConfig | dict | None
         Configuration for automatic feature engineering. It is required when
-        `auto_feature_engineering=True`. The AI Feynman-inspired surrogate
-        decomposition engine and the independent lightweight FEAT-like
-        evolutionary representation engine support `mode="suggest"` and
-        `mode="augment"`. `empirical` skips hard dimensional screening;
+        `auto_feature_engineering=True`. Candidates selected under the global
+        feature budget are always appended to the search inputs; there is no
+        separate suggest mode. The AI Feynman-inspired surrogate decomposition
+        engine and the independent lightweight FEAT-like evolutionary representation
+        can be enabled separately. `empirical` skips hard dimensional screening;
         `semi_theoretical` and `theoretical` require `X_dimensions`/`y_dimensions` and
         screen intermediate feature expressions with MySRCore's dimensional
         runtime before injection.
@@ -2936,7 +2937,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         int | float | list[int | float] | None,
         ArrayLike[str] | None,
     ]:
-        """Discover and optionally append replayable engineered input features."""
+        """Discover and append selected replayable engineered input features."""
 
         if self.feature_engineering_config is None:
             raise ValueError(
@@ -3047,6 +3048,8 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 "complexity": float(proposal.complexity),
                 "dimension": dimension,
                 "feature_kind": proposal.feature_kind,
+                "structural_gate": bool(proposal.structural_gate),
+                "utility_gate": bool(proposal.utility_gate),
             }
             for proposal, dimension in zip(
                 engineer.accepted_proposals_, engineered_dimensions, strict=True
@@ -3056,10 +3059,6 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             "engineered_feature_metadata"
         ] = copy.deepcopy(self.engineered_feature_metadata_)
 
-        if config.mode == "suggest":
-            self.augmented_feature_names_ = np.asarray(names, dtype=str)
-            return X, Xresampled, variable_names, complexity_of_variables, X_dimensions
-
         augmented_names = engineer.get_feature_names_out()
         collisions = set(names).intersection(self.engineered_feature_names_)
         if collisions:
@@ -3067,9 +3066,9 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 "Generated feature names collide with input variable names: "
                 + ", ".join(sorted(collisions))
             )
-        X = engineer.transform(X, augment=True)
+        X = engineer.transform(X)
         if Xresampled is not None:
-            Xresampled = engineer.transform(Xresampled, augment=True)
+            Xresampled = engineer.transform(Xresampled)
         variable_names = cast(ArrayLike[str], augmented_names)
         self.augmented_feature_names_ = np.asarray(augmented_names, dtype=str)
         self.feature_names_in_ = self.augmented_feature_names_
@@ -3098,6 +3097,58 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             self.X_dimensions_ = copy.deepcopy(X_dimensions)
 
         return X, Xresampled, variable_names, complexity_of_variables, X_dimensions
+
+    def _record_feature_engineering_usage(self) -> None:
+        """Attach post-search feature lineage to the AFE report.
+
+        AFE runs before Julia search, so candidate generation and acceptance
+        are known during preprocessing while actual HOF usage is only known
+        after ``equation_search`` returns.  Keeping this small reconciliation
+        step in the frontend makes the distinction explicit without changing
+        the Julia wire contract.
+        """
+
+        report = getattr(self, "feature_engineering_report_", None)
+        if not report:
+            return
+        equations = getattr(self, "equations_", None)
+        frames = equations if isinstance(equations, list) else [equations]
+        rendered: list[str] = []
+        for frame in frames:
+            if not isinstance(frame, pd.DataFrame):
+                continue
+            columns = [
+                column for column in ("equation", "sympy_format") if column in frame
+            ]
+            if not columns:
+                continue
+            # Each row is one HOF member, even when several renderings are
+            # available. Joining them preserves names simplified out of one
+            # representation without double-counting the equation.
+            rendered.extend(
+                " ".join(str(value) for value in row)
+                for row in frame[columns].itertuples(index=False, name=None)
+            )
+        usage: dict[str, int] = {}
+        for name in getattr(self, "engineered_feature_names_", []):
+            usage[str(name)] = sum(
+                1
+                for expression in rendered
+                if re.search(rf"\b{re.escape(str(name))}\b", expression)
+            )
+        report["feature_usage"] = {
+            "hof_equation_count": len(rendered),
+            "referenced_features": usage,
+            "referenced_count": sum(value > 0 for value in usage.values()),
+        }
+        for metadata in getattr(self, "engineered_feature_metadata_", []):
+            name = str(metadata.get("name", ""))
+            metadata["selected_in_hof"] = usage.get(name, 0) > 0
+        report["engineered_feature_metadata"] = copy.deepcopy(
+            getattr(self, "engineered_feature_metadata_", [])
+        )
+        for feature in report.get("accepted_features", []):
+            feature["selected_in_hof"] = usage.get(str(feature["name"]), 0) > 0
 
     def _pre_transform_training_data(
         self,
@@ -3970,6 +4021,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
         # Set attributes
         self.equations_ = equations
+        self._record_feature_engineering_usage()
         self.rnn_gpsr_diagnostics_ = (
             list(python_rnn_generator.diagnostics_)
             if python_rnn_generator is not None
@@ -4220,6 +4272,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             self._clear_equation_file_contents()
         check_is_fitted(self, attributes=["run_id_", "output_directory_"])
         self.equations_ = self.get_hof()
+        self._record_feature_engineering_usage()
 
     def predict(
         self,
@@ -4273,12 +4326,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                     "Please rename the columns to valid names."
                 )
 
-            if (
-                self.auto_feature_engineering
-                and self.feature_engineer_ is not None
-                and getattr(self, "feature_engineering_config_", None) is not None
-                and self.feature_engineering_config_.mode == "augment"
-            ):
+            if self.auto_feature_engineering and self.feature_engineer_ is not None:
                 raw_names = pd.Index(self.raw_feature_names_in_)
                 if isinstance(X.columns, pd.RangeIndex):
                     if X.shape[1] != len(raw_names):
@@ -4290,10 +4338,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 else:
                     X = X.reindex(columns=raw_names)
                 X_values = check_array(X)
-                X_augmented = self.feature_engineer_.transform(
-                    X_values,
-                    augment=True,
-                )
+                X_augmented = self.feature_engineer_.transform(X_values)
                 X = pd.DataFrame(
                     X_augmented,
                     columns=pd.Index(self.augmented_feature_names_),

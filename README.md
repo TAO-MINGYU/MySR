@@ -114,14 +114,13 @@ For `semi_theoretical` and `theoretical` modes, MySRCore performs the authoritat
 
 ### Automated feature engineering
 
-When explicitly enabled, MySR can propose structured combinations such as differences, ratios, products, normalized differences, powers, and other controlled compositions. The `suggest` mode reports candidates; the `augment` mode adds validated candidates to the search input while retaining the original features.
+When explicitly enabled, MySR proposes structured combinations such as differences, ratios, products, normalized differences, powers, symmetry bases, and other bounded compositions. Selected validated candidates are always added to the search input while the original features are retained; the feature-engineering configuration has no separate suggest/augment mode.
 
 ```python
 model = MySRRegressor(
     formula_type="empirical",
     auto_feature_engineering=True,
     feature_engineering_config={
-        "mode": "suggest",
         "surrogate_engine": {"enabled": True},
     },
 )

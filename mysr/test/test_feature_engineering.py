@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 import pytest
 from sklearn.utils import check_random_state
 
@@ -134,13 +135,18 @@ def test_augment_materializes_full_variable_complexity_list(raw_complexities):
     model = MySRRegressor(
         auto_feature_engineering=True,
         feature_engineering_config=FeatureEngineeringConfig(
-            mode="augment",
             surrogate_engine=SurrogateEngineConfig(
                 candidate_operators=("sub",),
                 candidate_unary_operators=(),
                 enable_unary_composition=False,
                 enable_recursive_composition=False,
                 enable_separability=False,
+                enable_structural_basis=False,
+                enable_anti_invariance=False,
+                enable_gradient_probes=False,
+                enable_structural_unary_basis=False,
+                enable_power_composition=False,
+                max_generated_features=1,
                 surrogate_min_r2=0.75,
                 invariance_min_score=0.86,
                 max_iter=1000,
@@ -301,6 +307,14 @@ def test_irrelevant_variable_pair_is_not_accepted():
         invariance_min_score=0.88,
         n_perturbations=10,
         max_iter=1200,
+        enable_structural_basis=False,
+        enable_anti_invariance=False,
+        enable_gradient_probes=False,
+        enable_structural_unary_basis=False,
+        enable_unary_composition=False,
+        enable_recursive_composition=False,
+        enable_power_composition=False,
+        candidate_unary_operators=(),
     )
     engineer = SurrogateFeatureEngineer(config, random_state=1).fit(
         X,
@@ -334,6 +348,14 @@ def test_division_candidate_rejects_zero_domain():
         surrogate_min_r2=0.70,
         invariance_min_score=0.0,
         max_iter=1000,
+        enable_structural_basis=False,
+        enable_anti_invariance=False,
+        enable_gradient_probes=False,
+        enable_structural_unary_basis=False,
+        enable_unary_composition=False,
+        enable_recursive_composition=False,
+        enable_power_composition=False,
+        candidate_unary_operators=(),
     )
     engineer = SurrogateFeatureEngineer(config, random_state=3).fit(X, y)
 
@@ -349,6 +371,15 @@ def test_transform_replays_accepted_feature_on_new_rows():
         surrogate_min_r2=0.75,
         invariance_min_score=0.86,
         max_iter=1000,
+        enable_structural_basis=False,
+        enable_anti_invariance=False,
+        enable_gradient_probes=False,
+        enable_structural_unary_basis=False,
+        enable_unary_composition=False,
+        enable_recursive_composition=False,
+        enable_power_composition=False,
+        candidate_unary_operators=(),
+        max_generated_features=1,
     )
     engineer = SurrogateFeatureEngineer(config, random_state=4).fit(
         X,
@@ -363,7 +394,7 @@ def test_transform_replays_accepted_feature_on_new_rows():
     assert engineer.get_feature_names_out()[-1] == "afe_sub_0_1"
 
 
-def test_regressor_suggest_and_augment_modes_have_distinct_effects():
+def test_regressor_always_injects_accepted_features():
     X = _positive_data(5)
     y = X[:, 0] - X[:, 1]
     surrogate = SurrogateEngineConfig(
@@ -371,51 +402,84 @@ def test_regressor_suggest_and_augment_modes_have_distinct_effects():
         surrogate_min_r2=0.75,
         invariance_min_score=0.86,
         max_iter=1000,
+        enable_structural_basis=False,
+        enable_anti_invariance=False,
+        enable_gradient_probes=False,
+        enable_structural_unary_basis=False,
+        enable_unary_composition=False,
+        enable_recursive_composition=False,
+        enable_power_composition=False,
+        candidate_unary_operators=(),
+        max_generated_features=1,
     )
     common = {
         "surrogate_engine": surrogate,
         "feat_engine": FEATEngineConfig(enabled=False),
     }
 
-    suggest_model = MySRRegressor(
+    model = MySRRegressor(
         auto_feature_engineering=True,
-        feature_engineering_config=FeatureEngineeringConfig(mode="suggest", **common),
+        feature_engineering_config=FeatureEngineeringConfig(**common),
     )
-    suggest_model.feature_names_in_ = np.asarray(["a", "b", "c"])
-    suggest_model.display_feature_names_in_ = suggest_model.feature_names_in_
-    suggest_model.nout_ = 1
-    suggest_result = suggest_model._pre_transform_training_data(
+    model.feature_names_in_ = np.asarray(["a", "b", "c"])
+    model.display_feature_names_in_ = model.feature_names_in_
+    model.nout_ = 1
+    result = model._pre_transform_training_data(
         X,
         y,
         None,
-        suggest_model.feature_names_in_,
+        model.feature_names_in_,
         None,
         None,
         None,
         check_random_state(5),
     )
-    assert suggest_result[0].shape == X.shape
-    assert suggest_model.feature_engineering_report_["accepted_count"] == 1
+    assert result[0].shape == (X.shape[0], X.shape[1] + 1)
+    assert result[2][-1] == "afe_sub_0_1"
+    assert model.feature_engineering_report_["accepted_count"] == 1
 
-    augment_model = MySRRegressor(
-        auto_feature_engineering=True,
-        feature_engineering_config=FeatureEngineeringConfig(mode="augment", **common),
+
+def test_feature_engineering_mode_is_rejected():
+    with pytest.raises(TypeError, match="mode"):
+        FeatureEngineeringConfig(mode="suggest")
+    from mysr.feature_engineering import coerce_feature_engineering_config
+
+    with pytest.raises(ValueError, match="mode was removed"):
+        coerce_feature_engineering_config({"mode": "augment"})
+
+
+def test_feature_usage_reconciles_hof_lineage_into_report():
+    model = MySRRegressor(auto_feature_engineering=True)
+    model.feature_engineering_report_ = {
+        "engineered_feature_metadata": [
+            {"name": "afe_sub_0_1"},
+            {"name": "afe_mul_0_1"},
+        ]
+    }
+    model.engineered_feature_names_ = ["afe_sub_0_1", "afe_mul_0_1"]
+    model.engineered_feature_metadata_ = [
+        {"name": "afe_sub_0_1"},
+        {"name": "afe_mul_0_1"},
+    ]
+    model.equations_ = pd.DataFrame(
+        {
+            "equation": ["afe_sub_0_1 + x0", "afe_mul_0_1__2 + x0"],
+            "sympy_format": ["afe_sub_0_1 + x0", "afe_mul_0_1__2 + x0"],
+        }
     )
-    augment_model.feature_names_in_ = np.asarray(["a", "b", "c"])
-    augment_model.display_feature_names_in_ = augment_model.feature_names_in_
-    augment_model.nout_ = 1
-    augment_result = augment_model._pre_transform_training_data(
-        X,
-        y,
-        None,
-        augment_model.feature_names_in_,
-        None,
-        None,
-        None,
-        check_random_state(5),
-    )
-    assert augment_result[0].shape == (X.shape[0], X.shape[1] + 1)
-    assert augment_result[2][-1] == "afe_sub_0_1"
+
+    model._record_feature_engineering_usage()
+
+    assert model.feature_engineering_report_["feature_usage"] == {
+        "hof_equation_count": 2,
+        "referenced_features": {"afe_sub_0_1": 1, "afe_mul_0_1": 0},
+        "referenced_count": 1,
+    }
+    assert model.engineered_feature_metadata_[0]["selected_in_hof"] is True
+    assert model.engineered_feature_metadata_[1]["selected_in_hof"] is False
+    assert model.feature_engineering_report_["engineered_feature_metadata"][0][
+        "selected_in_hof"
+    ] is True
 
 
 def test_regressor_disabled_feature_engineering_exposes_raw_augmented_names():
@@ -496,12 +560,20 @@ def test_constrained_augment_injects_feature_dimension_and_complexity_metadata()
         surrogate_min_r2=0.75,
         invariance_min_score=0.86,
         max_iter=1000,
+        enable_structural_basis=False,
+        enable_anti_invariance=False,
+        enable_gradient_probes=False,
+        enable_structural_unary_basis=False,
+        enable_unary_composition=False,
+        enable_recursive_composition=False,
+        enable_power_composition=False,
+        candidate_unary_operators=(),
+        max_generated_features=1,
     )
     model = MySRRegressor(
         formula_type="theoretical",
         auto_feature_engineering=True,
         feature_engineering_config=FeatureEngineeringConfig(
-            mode="augment",
             surrogate_engine=surrogate,
             feat_engine=FEATEngineConfig(enabled=False),
         ),
@@ -735,6 +807,10 @@ def test_unary_domain_checks_are_reported_and_not_augmented():
     config = SurrogateEngineConfig(
         candidate_operators=(),
         enable_pairwise_symmetry=False,
+        enable_structural_basis=False,
+        enable_anti_invariance=False,
+        enable_gradient_probes=False,
+        enable_structural_unary_basis=False,
         candidate_unary_operators=("reciprocal", "log_abs"),
         surrogate_min_r2=0.70,
         composition_min_score=0.0,
@@ -837,7 +913,7 @@ def test_beam_search_constructs_depth_three_multivariable_feature():
     )
     assert proposal.depth == 3
     np.testing.assert_allclose(proposal.transform(X[:12]), y[:12])
-    assert len(engineer.proposals_) <= config.max_composition_candidates + 3
+    assert len(engineer.proposals_) <= config.max_total_candidates
     assert len(engineer.report_["composition_search"]) == 3
     assert all(
         layer["frontier_count"] <= config.composition_beam_width
@@ -1073,7 +1149,9 @@ def test_structural_sum_evidence_does_not_extrapolate_from_one_pair():
     )
     triple = next(item for item in proposals if item.relation_kind == "symmetric_sum"
                   and len(item.input_indices) == 3)
-    assert not triple.accepted
+    assert triple.accepted
+    assert triple.structural_gate
+    assert not triple.utility_gate
 
 
 def test_permutation_basis_archives_alternating_vandermonde():
@@ -1250,14 +1328,12 @@ def test_feat_like_is_reproducible_for_fixed_seed():
     assert first.report_["bundles"] == second.report_["bundles"]
 
 
-@pytest.mark.parametrize("mode", ["suggest", "augment"])
-def test_regressor_runs_feat_like_branch_in_both_modes(mode):
+def test_regressor_runs_feat_like_branch_and_injects_features():
     X, y = _feat_bundle_data()
     model = MySRRegressor(
         formula_type="empirical",
         auto_feature_engineering=True,
         feature_engineering_config=FeatureEngineeringConfig(
-            mode=mode,
             surrogate_engine=SurrogateEngineConfig(enabled=False),
             feat_engine=_feat_bundle_config(),
         ),
@@ -1277,8 +1353,7 @@ def test_regressor_runs_feat_like_branch_in_both_modes(mode):
         check_random_state(41),
     )
 
-    expected_columns = X.shape[1] if mode == "suggest" else X.shape[1] + 2
-    assert result[0].shape == (X.shape[0], expected_columns)
+    assert result[0].shape == (X.shape[0], X.shape[1] + 2)
     assert model.feature_engineering_engine_reports_["feat"]["status"] == "ok"
     assert len(model.engineered_feature_bundles_) == 1
     assert set(model.engineered_feature_expressions_.values()) == {

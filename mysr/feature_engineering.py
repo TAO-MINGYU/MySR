@@ -15,9 +15,9 @@ from __future__ import annotations
 import inspect
 import re
 import warnings
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from itertools import combinations
+from itertools import combinations, islice
 from typing import Any, Literal, cast
 
 import numpy as np
@@ -101,22 +101,20 @@ class SurrogateEngineConfig:
     enable_separability: bool = True
     enable_parameterized_symmetry: bool = True
     enable_power_composition: bool = True
-    # Opt-in for compatibility: existing AFE profiles retain their candidate
-    # counts until the benchmark profile explicitly requests the expanded
-    # structural archive.
-    enable_structural_basis: bool = False
-    enable_anti_invariance: bool = False
-    # Additional AFE evidence/candidate families.  They are opt-in so legacy
-    # profiles keep their exact candidate budget and feature names.
-    enable_gradient_probes: bool = False
-    enable_structural_unary_basis: bool = False
-    enable_elementary_symmetric_basis: bool = False
-    enable_dimensionless_basis: bool = False
-    enable_permutation_basis: bool = False
+    # Structural candidates are part of the default AFE path.  Every branch is
+    # bounded by the candidate/beam budgets below; callers can still disable a
+    # family explicitly when running an ablation.
+    enable_structural_basis: bool = True
+    enable_anti_invariance: bool = True
+    enable_gradient_probes: bool = True
+    enable_structural_unary_basis: bool = True
+    enable_elementary_symmetric_basis: bool = True
+    enable_dimensionless_basis: bool = True
+    enable_permutation_basis: bool = True
     gradient_min_score: float = 0.85
     gradient_step_fraction: float = 1.0e-3
     max_gradient_pairs: int = 128
-    max_structural_candidates: int = 128
+    max_structural_candidates: int = 256
     structural_min_score: float = 0.10
     power_exponents: tuple[float, ...] = (0.5, 1.5, 2.5, -0.5)
     surrogate_min_r2: float = 0.80
@@ -142,12 +140,13 @@ class SurrogateEngineConfig:
     parameter_identity_tolerance: float = 0.05
     parameter_boundary_tolerance: float = 0.04
     parameter_min_improvement: float = 0.04
-    max_composition_candidates: int = 256
+    max_composition_candidates: int = 512
     max_separability_partitions: int = 32
     max_subset_size: int = 3
     max_composition_depth: int = 3
-    composition_beam_width: int = 24
-    max_generated_features: int = 8
+    composition_beam_width: int = 32
+    max_generated_features: int = 24
+    max_total_candidates: int = 1024
     complexity_penalty: float = 0.015
     exp_input_limit: float = 20.0
     hidden_layer_sizes: tuple[int, ...] = (32, 32)
@@ -216,7 +215,6 @@ class FeatureEngineeringConfig:
     MySRCore search to use different dimensional policies.
     """
 
-    mode: Literal["suggest", "augment"] = "suggest"
     surrogate_engine: SurrogateEngineConfig = field(
         default_factory=SurrogateEngineConfig
     )
@@ -232,6 +230,11 @@ def coerce_feature_engineering_config(
     if isinstance(config, FeatureEngineeringConfig):
         normalized = config
     elif isinstance(config, dict):
+        if "mode" in config:
+            raise ValueError(
+                "feature_engineering_config.mode was removed; automatic feature "
+                "engineering always injects accepted features into the search"
+            )
         if "formula_type" in config:
             raise ValueError(
                 "formula_type is owned by MySRRegressor; pass it as "
@@ -251,7 +254,6 @@ def coerce_feature_engineering_config(
             else FEATEngineConfig(**feat_value)
         )
         normalized = FeatureEngineeringConfig(
-            mode=cast(Any, config.get("mode", "suggest")),
             surrogate_engine=surrogate,
             feat_engine=feat,
             # Preserve the raw value until the shared validation below. Casting
@@ -278,8 +280,6 @@ def coerce_feature_engineering_config(
             surrogate_engine=surrogate_value,
             feat_engine=feat_value,
         )
-    if normalized.mode not in {"suggest", "augment"}:
-        raise ValueError("feature-engineering mode must be 'suggest' or 'augment'")
     if not isinstance(normalized.max_generated_features, int) or isinstance(
         normalized.max_generated_features, bool
     ):
@@ -876,6 +876,10 @@ class FeatureProposal:
     parameter: float | None = None
     relation_kind: str | None = None
     structural_score: float = 0.0
+    structural_gate: bool = False
+    utility_gate: bool = False
+    selected_for_injection: bool = False
+    selection_reason: str | None = None
     node: FeatureNode | None = field(default=None, repr=False, compare=False)
 
     @property
@@ -918,6 +922,12 @@ class FeatureProposal:
             "parameter": self.parameter,
             "relation_kind": self.relation_kind,
             "structural_score": self.structural_score,
+            "gates": {
+                "structural": self.structural_gate,
+                "utility": self.utility_gate,
+            },
+            "selected_for_injection": self.selected_for_injection,
+            "selection_reason": self.selection_reason,
             "support_fraction": self.support_fraction,
             "accepted": self.accepted,
             "rejection_reason": self.rejection_reason,
@@ -989,6 +999,37 @@ class SurrogateFeatureEngineer:
         valid, _, reason = self.dimension_spec_.validate(node)
         return valid, reason
 
+    def _candidate_budgets(self) -> dict[str, int]:
+        """Share the total proposal budget across enabled candidate families."""
+
+        config = self.config
+        capacities = {
+            "pairwise": (
+                config.max_candidate_pairs
+                + (config.max_parameterized_candidates if config.enable_parameterized_symmetry else 0)
+            ) if config.enable_pairwise_symmetry else 0,
+            "structural": config.max_structural_candidates if config.enable_structural_basis else 0,
+            "composition": config.max_composition_candidates if (
+                config.enable_recursive_composition
+                or config.enable_unary_composition
+                or config.enable_power_composition
+            ) else 0,
+        }
+        total = sum(capacities.values())
+        if total <= config.max_total_candidates:
+            return capacities
+        budgets = {
+            family: capacity * config.max_total_candidates // total
+            for family, capacity in capacities.items()
+        }
+        remaining = config.max_total_candidates - sum(budgets.values())
+        for family in sorted(
+            capacities,
+            key=lambda family: -(capacities[family] * config.max_total_candidates % total),
+        )[:remaining]:
+            budgets[family] += 1
+        return budgets
+
     @staticmethod
     def _validate_config(config: SurrogateEngineConfig) -> None:
         binary_allowed = {"sub", "add", "mul", "div"}
@@ -1049,6 +1090,7 @@ class SurrogateFeatureEngineer:
             "max_composition_depth",
             "composition_beam_width",
             "max_generated_features",
+            "max_total_candidates",
             "max_structural_candidates",
             "max_gradient_pairs",
             "max_iter",
@@ -1091,6 +1133,10 @@ class SurrogateFeatureEngineer:
             raise ValueError("parameter_boundary_tolerance must be in [0, 0.5)")
         if config.parameter_min_improvement < 0:
             raise ValueError("parameter_min_improvement must be non-negative")
+        if config.max_total_candidates < config.max_generated_features:
+            raise ValueError(
+                "max_total_candidates must be at least max_generated_features"
+            )
         if not config.power_exponents or any(
             not np.isfinite(float(exponent)) or abs(float(exponent)) < 1.0e-12
             for exponent in config.power_exponents
@@ -1496,10 +1542,9 @@ class SurrogateFeatureEngineer:
             for reference in simpler_references
             if np.any(construction_valid)
         )
-        accepted = (
-            support == 1.0
-            and not redundant_with_simpler
-            and construction_score >= self.config.composition_min_score
+        structural_gate = support == 1.0 and not redundant_with_simpler
+        utility_gate = (
+            construction_score >= self.config.composition_min_score
             and validation_score >= self.config.composition_min_score
             and (
                 improvement >= self.config.composition_min_improvement
@@ -1519,9 +1564,30 @@ class SurrogateFeatureEngineer:
                 )
             )
         )
+        structural_archive_gate = (
+            feature_kind == "unary_composition"
+            and any(
+                source.operator
+                in {
+                    "add",
+                    "sub",
+                    "mul",
+                    "div",
+                    "normalized_sub",
+                    "hypot",
+                    "log_ratio",
+                    "exp_ratio",
+                    "sin_ratio",
+                    "cos_ratio",
+                }
+                for source in source_nodes
+            )
+        )
+        accepted = structural_gate and (utility_gate or structural_archive_gate)
         reason = None
         dimension_valid, dimension_reason = self._dimension_check(node)
         if not dimension_valid:
+            structural_gate = False
             accepted = False
             reason = dimension_reason or "dimension_constraint"
         if not accepted:
@@ -1555,7 +1621,10 @@ class SurrogateFeatureEngineer:
             validation_score=validation_score,
             improvement_score=improvement,
             construction_score=construction_score,
+            relation_kind=("structural_transform" if structural_archive_gate else None),
             node=node,
+            structural_gate=structural_gate,
+            utility_gate=utility_gate,
         )
 
     @staticmethod
@@ -1665,6 +1734,67 @@ class SurrogateFeatureEngineer:
             )
         return evidence, records
 
+    def _structural_nodes(
+        self,
+        indices: Sequence[int],
+    ) -> Iterator[tuple[FeatureNode, str, str]]:
+        """Interleave unary, pair and k-way bases without materializing them."""
+
+        def unary_nodes() -> Iterator[tuple[FeatureNode, str, str]]:
+            if not self.config.enable_structural_unary_basis:
+                return
+            for operator in self.config.candidate_unary_operators:
+                relation = {
+                    "square": "polynomial_square",
+                    "cube": "polynomial_cube",
+                }.get(operator, f"output_transform_{operator}")
+                for index in indices:
+                    yield (
+                        FeatureNode(operator, (FeatureNode.variable(index),)),
+                        relation,
+                        "structural_invariant",
+                    )
+
+        def subset_nodes(arity: int) -> Iterator[tuple[FeatureNode, str, str]]:
+            for subset in combinations(indices, arity):
+                variables = [FeatureNode.variable(index) for index in sorted(subset)]
+                yield self._fold_nodes("add", variables), "symmetric_sum", "structural_invariant"
+                squares = [FeatureNode("square", (variable,)) for variable in variables]
+                yield self._fold_nodes("add", squares), "radial_square", "structural_invariant"
+                if arity == 2:
+                    yield FeatureNode("mul", tuple(variables)), "symmetric_product", "structural_invariant"
+                    if self.config.enable_anti_invariance:
+                        yield FeatureNode("sub", tuple(variables)), "antisymmetric_difference", "structural_anti_invariant"
+                    if self.config.enable_dimensionless_basis:
+                        for pair in (variables, variables[::-1]):
+                            yield FeatureNode("div", tuple(pair)), "dimensionless_ratio", "structural_invariant"
+                if self.config.enable_elementary_symmetric_basis and arity >= 3:
+                    products = [
+                        FeatureNode("mul", (variables[left], variables[right]))
+                        for left, right in combinations(range(arity), 2)
+                    ]
+                    yield self._fold_nodes("add", products), "elementary_symmetric_e2", "structural_invariant"
+                    yield self._fold_nodes("mul", variables), "elementary_symmetric_product", "structural_invariant"
+                if self.config.enable_permutation_basis and arity == 3:
+                    differences = [
+                        FeatureNode("sub", (variables[left], variables[right]))
+                        for left, right in ((0, 1), (0, 2), (1, 2))
+                    ]
+                    yield self._fold_nodes("mul", differences), "alternating_vandermonde", "structural_anti_invariant"
+
+        max_arity = min(max(2, self.config.max_subset_size), len(indices))
+        streams = [unary_nodes()] + [
+            subset_nodes(arity) for arity in range(2, max_arity + 1)
+        ]
+        while streams:
+            remaining = []
+            for stream in streams:
+                candidate = next(stream, None)
+                if candidate is not None:
+                    yield candidate
+                    remaining.append(stream)
+            streams = remaining
+
     def _structural_basis_candidates(
         self,
         construction_X: NDArray[np.float64],
@@ -1674,6 +1804,9 @@ class SurrogateFeatureEngineer:
         validation_y: NDArray[np.float64],
         names: Sequence[str],
         gradient_evidence: Mapping[tuple[str, tuple[int, ...]], float] | None = None,
+        *,
+        candidate_budget: int | None = None,
+        relevance: NDArray[np.float64] | None = None,
     ) -> list[FeatureProposal]:
         """Generate low-arity invariant and anti-invariant coordinates.
 
@@ -1685,130 +1818,27 @@ class SurrogateFeatureEngineer:
 
         if not self.config.enable_structural_basis:
             return []
-        n_features = construction_X.shape[1]
-        max_arity = min(max(2, self.config.max_subset_size), n_features)
-        candidates: list[tuple[FeatureNode, str, str, float]] = []
+        indices = sorted(
+            range(construction_X.shape[1]),
+            key=lambda index: (-float(relevance[index]) if relevance is not None else 0.0, index),
+        )
         gradient_evidence = gradient_evidence or {}
-        if self.config.enable_structural_unary_basis:
-            for index in range(n_features):
-                variable = FeatureNode.variable(index)
-                for operator in self.config.candidate_unary_operators:
-                    relation_kind = {
-                        "square": "polynomial_square",
-                        "cube": "polynomial_cube",
-                    }.get(operator, f"output_transform_{operator}")
-                    candidates.append(
-                        (FeatureNode(operator, (variable,)), relation_kind, "structural_invariant", 0.0)
-                    )
-        for arity in range(2, max_arity + 1):
-            for indices in combinations(range(n_features), arity):
-                variables = [FeatureNode.variable(index) for index in indices]
-                # Symmetric sum and radial square are the two most useful
-                # bases for permutation/exchange invariant functions.
-                candidates.append(
-                    (
-                        self._fold_nodes("add", variables),
-                        "symmetric_sum",
-                        "structural_invariant",
-                        gradient_evidence.get(("sum_coordinate", tuple(indices)), 0.0)
-                        if arity == 2
-                        else 0.0,
-                    )
-                )
-                squares = [FeatureNode("square", (variable,)) for variable in variables]
-                candidates.append(
-                    (
-                        self._fold_nodes("add", squares),
-                        "radial_square",
-                        "structural_invariant",
-                        0.0,
-                    )
-                )
-                if arity == 2:
-                    candidates.append(
-                        (
-                            FeatureNode("mul", tuple(variables)),
-                            "symmetric_product",
-                            "structural_invariant",
-                            0.0,
-                        )
-                    )
-                if self.config.enable_elementary_symmetric_basis and arity >= 3:
-                    pair_products = [
-                        FeatureNode("mul", (variables[left], variables[right]))
-                        for left, right in combinations(range(arity), 2)
-                    ]
-                    candidates.append(
-                        (
-                            self._fold_nodes("add", pair_products),
-                            "elementary_symmetric_e2",
-                            "structural_invariant",
-                            0.0,
-                        )
-                    )
-                if self.config.enable_permutation_basis and arity == 3:
-                    # The Vandermonde factor changes sign under every odd
-                    # permutation and is a compact basis for alternating
-                    # three-variable targets.  It is generated only for
-                    # triples to keep the structural archive bounded.
-                    differences = [
-                        FeatureNode(
-                            "sub", (variables[left], variables[right])
-                        )
-                        for left, right in ((0, 1), (0, 2), (1, 2))
-                    ]
-                    candidates.append(
-                        (
-                            self._fold_nodes("mul", differences),
-                            "alternating_vandermonde",
-                            "structural_anti_invariant",
-                            0.0,
-                        )
-                    )
-                    candidates.append(
-                        (
-                            self._fold_nodes("mul", variables),
-                            "elementary_symmetric_product",
-                            "structural_invariant",
-                            0.0,
-                        )
-                    )
-                if self.config.enable_dimensionless_basis and arity == 2:
-                    candidates.append(
-                        (
-                            FeatureNode("div", tuple(variables)),
-                            "dimensionless_ratio",
-                            "structural_invariant",
-                            0.0,
-                        )
-                    )
-        if self.config.enable_anti_invariance:
-            for left_index, right_index in combinations(range(n_features), 2):
-                candidates.append(
-                    (
-                        FeatureNode(
-                            "sub",
-                            (
-                                FeatureNode.variable(left_index),
-                                FeatureNode.variable(right_index),
-                            ),
-                        ),
-                        "antisymmetric_difference",
-                        "structural_anti_invariant",
-                        gradient_evidence.get(
-                            ("difference_coordinate", (left_index, right_index)), 0.0
-                        ),
-                    )
-                )
-
+        budget = self.config.max_structural_candidates
+        if candidate_budget is not None:
+            budget = min(budget, candidate_budget)
         proposals: list[FeatureProposal] = []
         seen: set[str] = set()
-        for node, relation_kind, feature_kind, gradient_score in candidates:
-            if len(proposals) >= self.config.max_structural_candidates:
-                break
+        for node, relation_kind, feature_kind in islice(self._structural_nodes(indices), budget):
             if node.signature in seen:
                 continue
             seen.add(node.signature)
+            gradient_relation = {
+                "symmetric_sum": "sum_coordinate",
+                "antisymmetric_difference": "difference_coordinate",
+            }.get(relation_kind)
+            gradient_score = gradient_evidence.get(
+                (gradient_relation, node.input_indices), 0.0
+            ) if gradient_relation and len(node.input_indices) == 2 else 0.0
             construction_values, construction_valid = self._node_support(
                 node, construction_X
             )
@@ -1840,11 +1870,42 @@ class SurrogateFeatureEngineer:
                 max(min(construction_score, validation_score), gradient_score)
             )
             dimension_valid, dimension_reason = self._dimension_check(node)
-            accepted = (
+            # Structural candidates are an auditable archive in their own
+            # right.  A correct intermediate such as r² can have little
+            # direct target correlation before an outer transform is fitted,
+            # so utility gain is recorded separately and is not required for
+            # structural acceptance.
+            structural_gate = (
                 support == 1.0
                 and dimension_valid
-                and structural_score >= self.config.structural_min_score
+                and (
+                    gradient_score >= self.config.gradient_min_score
+                    or relation_kind
+                    in {
+                        "symmetric_sum",
+                        "radial_square",
+                        "symmetric_product",
+                        "elementary_symmetric_e2",
+                        "elementary_symmetric_product",
+                        "alternating_vandermonde",
+                        "antisymmetric_difference",
+                        "dimensionless_ratio",
+                        "polynomial_square",
+                        "polynomial_cube",
+                        "output_transform_abs",
+                        "output_transform_log_abs",
+                        "output_transform_exp",
+                        "output_transform_sin",
+                        "output_transform_cos",
+                        "output_transform_sqrt_abs",
+                        "output_transform_reciprocal",
+                    }
+                )
             )
+            utility_gate = (
+                min(construction_score, validation_score) >= self.config.structural_min_score
+            )
+            accepted = structural_gate
             reason = None
             if not accepted:
                 if not dimension_valid:
@@ -1875,6 +1936,8 @@ class SurrogateFeatureEngineer:
                     stability_fraction=1.0 if accepted else 0.0,
                     relation_kind=relation_kind,
                     structural_score=structural_score,
+                    structural_gate=structural_gate,
+                    utility_gate=utility_gate,
                     node=node,
                 )
             )
@@ -1889,15 +1952,78 @@ class SurrogateFeatureEngineer:
         validation_y: NDArray[np.float64],
         names: Sequence[str],
         pairwise: Sequence[FeatureProposal],
+        *,
+        candidate_budget: int | None = None,
     ) -> list[FeatureProposal]:
         """Search bounded multi-level feature compositions with a beam frontier."""
 
+        budget = self.config.max_composition_candidates
+        if candidate_budget is not None:
+            budget = min(budget, candidate_budget)
         proposals: list[FeatureProposal] = []
         raw_nodes = [FeatureNode.variable(i) for i in range(X.shape[1])]
-        reduced_nodes = [
-            proposal.node
+        pairwise_seeds = [
+            proposal
             for proposal in pairwise
             if proposal.accepted and proposal.node is not None
+            and proposal.feature_kind == "pairwise_symmetry"
+        ]
+        # Structural-only archive entries are intentionally retained for
+        # downstream diagnostics, but feeding every one into the composition
+        # beam would spend the bounded grammar on unary transforms of noise.
+        # Keep canonical coordinates even without independent target gain:
+        # an outer transform can make them useful at a later beam depth.
+        structural_seed_relations = {
+            "symmetric_sum",
+            "radial_square",
+            "symmetric_product",
+            "elementary_symmetric_e2",
+            "elementary_symmetric_product",
+            "alternating_vandermonde",
+            "antisymmetric_difference",
+            "dimensionless_ratio",
+        }
+        structural_seeds = [
+            proposal
+            for proposal in pairwise
+            if proposal.accepted
+            and proposal.node is not None
+            and proposal.feature_kind
+            in {"structural_invariant", "structural_anti_invariant"}
+            and proposal.relation_kind in structural_seed_relations
+        ]
+        relation_priority = {
+            "symmetric_sum": 0,
+            "antisymmetric_difference": 1,
+            "radial_square": 2,
+            "dimensionless_ratio": 3,
+            "symmetric_product": 4,
+            "elementary_symmetric_e2": 5,
+            "elementary_symmetric_product": 6,
+            "alternating_vandermonde": 7,
+        }
+        structural_seeds.sort(
+            key=lambda proposal: (
+                relation_priority.get(proposal.relation_kind or "", 99),
+                len(proposal.input_indices),
+                -int(proposal.utility_gate),
+                -self._selection_score(proposal),
+                proposal.name,
+            )
+        )
+        pairwise_seeds.sort(key=self._selection_score, reverse=True)
+        reduced_proposals = []
+        seen_seed_signatures: set[str] = set()
+        for proposal in (*structural_seeds, *pairwise_seeds):
+            assert proposal.node is not None
+            if proposal.node.signature in seen_seed_signatures:
+                continue
+            seen_seed_signatures.add(proposal.node.signature)
+            reduced_proposals.append(proposal)
+            if len(reduced_proposals) >= max(self.config.composition_beam_width, 16):
+                break
+        reduced_nodes = [
+            proposal.node for proposal in reduced_proposals if proposal.node is not None
         ]
         typed_reduced = cast(list[FeatureNode], reduced_nodes)
         # Reduced symmetry variables carry stronger structural evidence than
@@ -1918,9 +2044,13 @@ class SurrogateFeatureEngineer:
         layer_proposals: list[FeatureProposal] = []
 
         for layer in range(1, self.config.max_composition_depth + 1):
-            if not frontier or len(proposals) >= self.config.max_composition_candidates:
+            if not frontier or len(proposals) >= budget:
                 break
             layer_proposals.clear()
+            layer_limit = min(
+                budget - len(proposals),
+                max(1, int(np.ceil(budget / self.config.max_composition_depth))),
+            )
 
             def add_candidate(
                 node: FeatureNode,
@@ -1928,14 +2058,22 @@ class SurrogateFeatureEngineer:
                 feature_kind: Literal[
                     "unary_composition", "recursive_composition"
                 ],
+                *,
+                current_layer_limit: int = layer_limit,
             ) -> bool:
                 if node.depth > self.config.max_composition_depth:
                     return False
                 if node.signature in seen:
                     return False
-                if len(proposals) + len(layer_proposals) >= (
-                    self.config.max_composition_candidates
-                ):
+                unary_reserve = (
+                    current_layer_limit // 3
+                    if self.config.enable_unary_composition or self.config.enable_power_composition
+                    else 0
+                )
+                candidate_limit = current_layer_limit
+                if feature_kind == "recursive_composition":
+                    candidate_limit -= unary_reserve
+                if len(layer_proposals) >= candidate_limit:
                     return True
                 seen.add(node.signature)
                 layer_proposals.append(
@@ -1954,32 +2092,75 @@ class SurrogateFeatureEngineer:
                 )
                 return False
 
+            # Reserve the first part of each layer for binary composition.  A
+            # unary-first loop can exhaust the bounded beam on transforms of a
+            # single coordinate before it ever tries the structural product
+            # or sum that defines the target.
             budget_reached = False
-            if self.config.enable_unary_composition:
-                for source in frontier:
-                    for unary_operator in self.config.candidate_unary_operators:
-                        budget_reached = add_candidate(
-                            FeatureNode(unary_operator, (source,)),
-                            (source,),
-                            "unary_composition",
-                        )
+            if self.config.enable_recursive_composition:
+                # Try pairings among the canonical structural seeds before the
+                # broad beam.  This is the small, high-value portion of the
+                # grammar that turns two discovered coordinates such as
+                # ``x0+x1`` and ``x2-x3`` into their outer composition.
+                priority_binary_operators = tuple(
+                    operator
+                    for operator in ("add", "mul")
+                    if operator in composition_operators
+                )
+                for seed_index, left in enumerate(typed_reduced):
+                    for right in typed_reduced[seed_index + 1 :]:
+                        for binary_operator in priority_binary_operators:
+                            budget_reached = add_candidate(
+                                self._composition_node(
+                                    binary_operator,
+                                    left,
+                                    right,
+                                ),
+                                (left, right),
+                                "recursive_composition",
+                            )
+                            if budget_reached:
+                                break
                         if budget_reached:
                             break
                     if budget_reached:
                         break
 
-            if self.config.enable_power_composition and not budget_reached:
-                for source in frontier:
-                    for exponent in self.config.power_exponents:
-                        budget_reached = add_candidate(
-                            FeatureNode.power(source, float(exponent)),
-                            (source,),
-                            "unary_composition",
-                        )
+                # Always probe raw pairs for explicitly configured operators;
+                # this keeps a narrow grammar such as only ``normalized_sub``
+                # useful even when the structural archive is enabled.
+                if not budget_reached:
+                    for left_index, left in enumerate(raw_nodes):
+                        for right in raw_nodes[left_index + 1 :]:
+                            for binary_operator in composition_operators:
+                                orientations = [(left, right)]
+                                if binary_operator in {
+                                    "sub",
+                                    "div",
+                                    "log_ratio",
+                                    "exp_ratio",
+                                    "sin_ratio",
+                                    "cos_ratio",
+                                }:
+                                    orientations.append((right, left))
+                                for oriented_left, oriented_right in orientations:
+                                    budget_reached = add_candidate(
+                                        self._composition_node(
+                                            binary_operator,
+                                            oriented_left,
+                                            oriented_right,
+                                        ),
+                                        (oriented_left, oriented_right),
+                                        "recursive_composition",
+                                    )
+                                    if budget_reached:
+                                        break
+                                if budget_reached:
+                                    break
+                            if budget_reached:
+                                break
                         if budget_reached:
                             break
-                    if budget_reached:
-                        break
 
             if self.config.enable_recursive_composition and not budget_reached:
                 right_pool = base_nodes if layer > 1 else frontier
@@ -2012,6 +2193,36 @@ class SurrogateFeatureEngineer:
                                     break
                             if budget_reached:
                                 break
+                        if budget_reached:
+                            break
+                    if budget_reached:
+                        break
+
+            # ``budget_reached`` here means the reserved recursive slice was
+            # filled, not that the whole layer is full.  Continue with unary
+            # transforms in the remaining slice.
+            budget_reached = False
+            if self.config.enable_unary_composition and not budget_reached:
+                for source in frontier:
+                    for unary_operator in self.config.candidate_unary_operators:
+                        budget_reached = add_candidate(
+                            FeatureNode(unary_operator, (source,)),
+                            (source,),
+                            "unary_composition",
+                        )
+                        if budget_reached:
+                            break
+                    if budget_reached:
+                        break
+
+            if self.config.enable_power_composition and not budget_reached:
+                for source in frontier:
+                    for exponent in self.config.power_exponents:
+                        budget_reached = add_candidate(
+                            FeatureNode.power(source, float(exponent)),
+                            (source,),
+                            "unary_composition",
+                        )
                         if budget_reached:
                             break
                     if budget_reached:
@@ -2273,15 +2484,22 @@ class SurrogateFeatureEngineer:
         seed: int,
         lower: NDArray[np.float64],
         upper: NDArray[np.float64],
+        *,
+        candidate_budget: int | None = None,
     ) -> list[FeatureProposal]:
         if not self.config.enable_pairwise_symmetry:
             return []
         self.parameter_search_report_ = []
         proposals: list[FeatureProposal] = []
+        budget = self.config.max_candidate_pairs + self.config.max_parameterized_candidates
+        if candidate_budget is not None:
+            budget = min(budget, candidate_budget)
+        if budget == 0:
+            return []
         raw_candidates = self._pair_directions(
             construction_X.shape[1],
             self.config.candidate_operators,
-            self.config.max_candidate_pairs,
+            min(self.config.max_candidate_pairs, budget),
             relevance,
         )
         fixed_evidence: list[
@@ -2343,13 +2561,14 @@ class SurrogateFeatureEngineer:
                 if construction_scores
                 else 0.0
             )
-            accepted = (
+            structural_gate = (
                 construction_score >= self.config.invariance_min_score
                 and validation_score >= self.config.invariance_min_score
                 and stability >= self.config.surrogate_stability_min_fraction
                 and support >= 0.5
-                and pair_relevance >= self.config.relevance_min_fraction
             )
+            utility_gate = pair_relevance >= self.config.relevance_min_fraction
+            accepted = structural_gate and utility_gate
             reason = None
             if not accepted:
                 if unsafe_division:
@@ -2364,6 +2583,7 @@ class SurrogateFeatureEngineer:
                     reason = "weak_invariance"
             dimension_valid, dimension_reason = self._dimension_check(node)
             if not dimension_valid:
+                structural_gate = False
                 accepted = False
                 reason = dimension_reason or "dimension_constraint"
             proposals.append(
@@ -2385,6 +2605,8 @@ class SurrogateFeatureEngineer:
                     improvement_score=min(construction_score, validation_score),
                     construction_score=construction_score,
                     stability_fraction=stability,
+                    structural_gate=structural_gate,
+                    utility_gate=utility_gate,
                     node=node,
                 )
             )
@@ -2419,6 +2641,8 @@ class SurrogateFeatureEngineer:
         ) in enumerate(
             parameterized_sources
         ):
+            if len(proposals) >= budget:
+                break
             parameter_seed = seed + 1_000_003 + 1009 * parameter_index
             parameter, optimized_score = self._optimized_parameter(
                 models,
@@ -2520,12 +2744,14 @@ class SurrogateFeatureEngineer:
                         ]
                     )
                 )
-            accepted = (
+            structural_gate = (
                 construction_score >= self.config.invariance_min_score
                 and validation_score >= self.config.invariance_min_score
                 and stability >= self.config.surrogate_stability_min_fraction
                 and support >= 0.5
             )
+            utility_gate = True
+            accepted = structural_gate
             reason = None
             if not accepted:
                 if unsafe_power:
@@ -2541,6 +2767,7 @@ class SurrogateFeatureEngineer:
             parameter_name = self._parameter_name(parameter)
             dimension_valid, dimension_reason = self._dimension_check(node)
             if not dimension_valid:
+                structural_gate = False
                 accepted = False
                 reason = dimension_reason or "dimension_constraint"
             proposals.append(
@@ -2566,6 +2793,8 @@ class SurrogateFeatureEngineer:
                     construction_score=construction_score,
                     stability_fraction=stability,
                     parameter=parameter,
+                    structural_gate=structural_gate,
+                    utility_gate=utility_gate,
                     node=node,
                 )
             )
@@ -2626,7 +2855,26 @@ class SurrogateFeatureEngineer:
             evidence = 0.7 * proposal.construction_score + 0.3 * max(
                 proposal.improvement_score, 0.0
             )
-        return evidence - self.config.complexity_penalty * proposal.complexity
+        # Preserve a useful outer composition when the structural archive is
+        # large: utility-backed recursive candidates rank ahead of structural
+        # coordinates that are retained mainly for future reduction.
+        kind_priority = {
+            "recursive_composition": 2.0,
+            "unary_composition": 1.8,
+            "pairwise_symmetry": 1.2,
+            "structural_invariant": 0.6,
+            "structural_anti_invariant": 0.6,
+            "feat_evolved": 1.0,
+        }.get(proposal.feature_kind, 0.0)
+        if not proposal.utility_gate:
+            kind_priority = 0.0
+        utility_priority = 0.35 if proposal.utility_gate else 0.0
+        return (
+            kind_priority
+            + utility_priority
+            + evidence
+            - self.config.complexity_penalty * proposal.complexity
+        )
 
     def fit(
         self,
@@ -2712,6 +2960,7 @@ class SurrogateFeatureEngineer:
         self.surrogate_r2_ = baseline_r2
         self.surrogate_validation_scores_ = tuple(model_validation_r2)
         self.surrogate_convergence_retries_ = tuple(convergence_retries)
+        candidate_budgets = self._candidate_budgets()
         if quality_fraction < self.config.surrogate_stability_min_fraction:
             self.proposals_ = []
             self.accepted_proposals_ = []
@@ -2730,6 +2979,11 @@ class SurrogateFeatureEngineer:
                 "surrogate_validation_r2": model_validation_r2,
                 "surrogate_quality_fraction": quality_fraction,
                 "surrogate_convergence_retries": convergence_retries,
+                "candidate_budget": self.config.max_total_candidates,
+                "candidate_budgets": candidate_budgets,
+                "structural_gate_count": 0,
+                "utility_gate_count": 0,
+                "selected_count": 0,
                 "candidates": [],
                 "separability": [],
             }
@@ -2776,6 +3030,7 @@ class SurrogateFeatureEngineer:
             seed,
             lower,
             upper,
+            candidate_budget=candidate_budgets["pairwise"],
         )
         structural = self._structural_basis_candidates(
             values[construction],
@@ -2785,6 +3040,8 @@ class SurrogateFeatureEngineer:
             target[validation],
             names,
             gradient_evidence,
+            candidate_budget=candidate_budgets["structural"],
+            relevance=relevance,
         )
         # Structural reductions are generated before recursive composition so
         # accepted intermediates (e.g. r²) can become inputs to an outer
@@ -2797,11 +3054,25 @@ class SurrogateFeatureEngineer:
             target[validation],
             names,
             [*pairwise, *structural],
+            candidate_budget=candidate_budgets["composition"],
         )
         decompositions = self._separability_candidates(
             models[0], values[construction], normalized_importance, seed_rng
         )
         proposals = pairwise + compositions + structural
+        if len(proposals) > self.config.max_total_candidates:
+            # Keep the bounded archive deterministic while preferring accepted
+            # structural evidence and useful compositions over rejected noise.
+            proposals = sorted(
+                proposals,
+                key=lambda proposal: (
+                    bool(proposal.accepted),
+                    self._selection_score(proposal),
+                    -proposal.complexity,
+                    proposal.name,
+                ),
+                reverse=True,
+            )[: self.config.max_total_candidates]
         selected = sorted(
             (proposal for proposal in proposals if proposal.accepted),
             key=self._selection_score,
@@ -2814,17 +3085,47 @@ class SurrogateFeatureEngineer:
         self.proposals_ = [
             replace(
                 proposal,
-                accepted=False,
-                rejection_reason="generated_feature_budget",
+                selected_for_injection=(
+                    proposal.accepted
+                    and (
+                        proposal.node.signature
+                        if proposal.node is not None
+                        else proposal.name
+                    )
+                    in selected_signatures
+                ),
+                selection_reason=(
+                    "selected"
+                    if proposal.accepted
+                    and (
+                        proposal.node.signature
+                        if proposal.node is not None
+                        else proposal.name
+                    ) in selected_signatures
+                    else (
+                        "generated_feature_budget"
+                        if proposal.accepted
+                        else proposal.rejection_reason
+                    )
+                ),
+                rejection_reason=(
+                    "generated_feature_budget"
+                    if proposal.accepted
+                    and (
+                        proposal.node.signature
+                        if proposal.node is not None
+                        else proposal.name
+                    )
+                    not in selected_signatures
+                    else proposal.rejection_reason
+                ),
             )
-            if proposal.accepted
-            and (proposal.node.signature if proposal.node is not None else proposal.name)
-            not in selected_signatures
-            else proposal
             for proposal in proposals
         ]
         self.accepted_proposals_ = [
-            proposal for proposal in self.proposals_ if proposal.accepted
+            proposal
+            for proposal in self.proposals_
+            if proposal.selected_for_injection
         ]
         self.decomposition_proposals_ = decompositions
         self.reduction_plan_ = [
@@ -2857,7 +3158,18 @@ class SurrogateFeatureEngineer:
                     "feature_kind": proposal.feature_kind,
                     "input_indices": proposal.input_indices,
                     "accepted": proposal.accepted,
+                    "gates": {
+                        "structural": proposal.structural_gate,
+                        "utility": proposal.utility_gate,
+                    },
+                    "selected_for_injection": proposal.selected_for_injection,
                     "structural_score": proposal.structural_score,
+                    "evidence": {
+                        "construction": proposal.construction_score,
+                        "validation": proposal.validation_score,
+                        "improvement": proposal.improvement_score,
+                        "stability": proposal.stability_fraction,
+                    },
                     "support_fraction": proposal.support_fraction,
                     "complexity": proposal.complexity,
                     "provenance": {
@@ -2892,6 +3204,18 @@ class SurrogateFeatureEngineer:
             },
             "candidate_count": len(self.proposals_),
             "accepted_count": len(self.accepted_proposals_),
+            "structural_gate_count": sum(
+                bool(proposal.structural_gate) for proposal in self.proposals_
+            ),
+            "utility_gate_count": sum(
+                bool(proposal.utility_gate) for proposal in self.proposals_
+            ),
+            "selected_count": len(self.accepted_proposals_),
+            "candidate_budget": self.config.max_total_candidates,
+            "candidate_budgets": candidate_budgets,
+            "accepted_archive_count": sum(
+                bool(proposal.accepted) for proposal in self.proposals_
+            ),
             "feature_graph": self.feature_graph_,
             "candidates": records,
             "pairwise_symmetries": [
@@ -2942,7 +3266,7 @@ class SurrogateFeatureEngineer:
         }
         return self
 
-    def transform(self, X: Any, *, augment: bool = True) -> NDArray[np.float64]:
+    def transform(self, X: Any) -> NDArray[np.float64]:
         """Replay accepted candidates on new data."""
 
         if not hasattr(self, "n_features_in_"):
@@ -2950,7 +3274,7 @@ class SurrogateFeatureEngineer:
         values = self._as_transform_matrix(X)
         if values.shape[1] != self.n_features_in_:
             raise ValueError("X does not match the fitted feature shape")
-        if not augment or not self.accepted_proposals_:
+        if not self.accepted_proposals_:
             return values
         columns = [values]
         for proposal in self.accepted_proposals_:

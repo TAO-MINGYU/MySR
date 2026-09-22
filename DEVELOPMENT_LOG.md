@@ -447,3 +447,22 @@
 - 影响路径：`mysr/sr.py`、`mysr/param_groupings.yml`、`mysr/test/test_population_migration.py`。
 - 验证：使用 env_1_mysr Python 3.11.15、临时 Julia project/depot 指向对应 MySRCore worktree，population migration focused tests 4 passed，`compileall` 与 `git diff --check` 通过。
 - Unknown：未运行完整 Python 405 项套件或 matched benchmark。
+
+## 2026-09-22 - AFE Phase 0/1 API and structural feature redesign
+
+- 变更类型：公共 AFE 配置收敛、结构候选能力增强和 HOF lineage 可观测性。
+- Decision：移除 `FeatureEngineeringConfig.mode`；`auto_feature_engineering=True` 时，按全局
+  预算选中的候选始终追加到 MySRCore/GPSR 输入，预测阶段复用同一 replay graph。显式传入旧
+  `mode` 的 dataclass/字典配置会报错。
+- Confirmed：默认 surrogate 分支开启有界 structural basis、gradient probes、k-way
+  symmetric/anti-invariant、radial-square、dimensionless、output-transform 和 recursive
+  composition；候选共享 `max_total_candidates`，并记录 structural/utility gate、selection
+  reason、支持率、复杂度、证据和 provenance。FEAT-like 分支保持独立 opt-in。
+- Confirmed：Julia wire contract 未改变；HOF 返回后 Python 按每个 HOF 成员回写 engineered
+  feature 的引用计数和 `selected_in_hof`，`refresh()` 也会刷新该状态。
+- 修改路径：`mysr/feature_engineering.py`、`mysr/feat_engine.py`、`mysr/sr.py`、
+  `mysr/test/test_feature_engineering.py`、`mysr/test/test_rnn_gpsr_seeding.py`、README。
+- Verification：AFE 套件 `69 passed`；AFE+RNN+量纲 focused suites `144 passed`；目标文件
+  Ruff、Python 编译和 `git diff --check` 通过。
+- Unknown：Phase 2 递归 MySRCore 子问题/HOF 回代与 matched benchmark 的 recovery、泛化和
+  资源收益仍未验证，本次不作性能结论。

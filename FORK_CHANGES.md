@@ -49,7 +49,7 @@
   tests. No public `PySRRegressor` compatibility alias is retained; truthful PySR
   names remain in provenance, licensing, upstream links, and benchmark identities.
 - Added an opt-in AI Feynman-inspired automatic input feature-engineering stage with
-  independent `suggest` and `augment` modes. It runs before feature selection and
+  an always-injecting feature-engineering path. It runs before feature selection and
   denoising, and replays accepted transforms during prediction.
 - Added fixed and learned pairwise generalized-symmetry candidates, including
   `xi±a*xj`, `xi*xj^a`, and `xi/xj^a`, plus bounded multi-level composition search.

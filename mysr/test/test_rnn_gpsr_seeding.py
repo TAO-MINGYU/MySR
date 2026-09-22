@@ -312,7 +312,6 @@ def test_ai_feynman_features_are_visible_to_rnn_gpsr_entry() -> None:
         rnn_gpsr_seeding=True,
         auto_feature_engineering=True,
         feature_engineering_config=FeatureEngineeringConfig(
-            mode="augment",
             surrogate_engine=SurrogateEngineConfig(
                 candidate_operators=("sub",),
                 candidate_unary_operators=(),
@@ -371,7 +370,6 @@ def test_user_guesses_survive_ai_feynman_and_rnn_gpsr() -> None:
         guesses=["2.0*x0 - 3.0*x1"],
         auto_feature_engineering=True,
         feature_engineering_config=FeatureEngineeringConfig(
-            mode="augment",
             max_generated_features=2,
             surrogate_engine=SurrogateEngineConfig(
                 candidate_operators=("sub",),
