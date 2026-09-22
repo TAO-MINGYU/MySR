@@ -107,19 +107,19 @@
   - batch_size
   - precision
   - fast_cycle
-    - turbo
-    - bumper
-    - autodiff_backend
-    - search_surrogate_enabled
-    - search_surrogate_model
-    - search_surrogate_warmup_evals
-    - search_surrogate_true_eval_fraction
-    - search_surrogate_exploration_fraction
-    - search_surrogate_uncertainty_scale
-    - search_surrogate_reject_margin
-    - search_surrogate_probe_size
-    - search_surrogate_neighbors
-    - search_surrogate_max_samples
+  - turbo
+  - bumper
+  - autodiff_backend
+  - search_surrogate_enabled
+  - search_surrogate_model
+  - search_surrogate_warmup_evals
+  - search_surrogate_true_eval_fraction
+  - search_surrogate_exploration_fraction
+  - search_surrogate_uncertainty_scale
+  - search_surrogate_reject_margin
+  - search_surrogate_probe_size
+  - search_surrogate_neighbors
+  - search_surrogate_max_samples
 - Determinism:
   - random_state
   - deterministic
