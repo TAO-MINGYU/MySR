@@ -481,3 +481,8 @@
   are recorded after re-running the affected suites.
 - **Unknown**：Matched P/M benchmark quality, throughput, and evaluation-count effects
   remain to be measured; this change does not claim a general performance gain.
+
+## 2026-09-22 - RNN-GPSR post-sync verification
+
+- **Follow-up**：canonical default-policy changes were merged into this feature worktree before validation. The parameter grouping manifest was completed for the existing loss, uncertainty, feature-engineering, affinity, and search-surrogate parameters exposed by the current constructor.
+- **Verification**：RNN-GPSR, population migration, and dimensional bridge tests passed (`84 passed`); the parameter grouping completeness test passed (`1 passed`); `python -m compileall -q mysr` and `git diff --check` passed.

@@ -19,7 +19,12 @@
     - loss_function
     - loss_function_expression
     - loss_scale
+    - loss_preset
+    - uncertainty_mode
+    - robust_delta
+    - student_nu
     - model_selection
+    - formula_type
   - Working with Complexities:
     - parsimony
     - constraints
@@ -57,6 +62,11 @@
     - perturbation_factor
     - probability_negate_constant
     - skip_mutation_failures
+    - mutation_affinity
+    - mutation_affinity_strength
+    - mutation_affinity_exploration
+    - operator_affinity
+    - feature_affinity
   - Tournament Selection:
     - tournament_selection_n
     - tournament_selection_p
@@ -80,6 +90,8 @@
 - Data Preprocessing:
   - denoise
   - select_k_features
+  - auto_feature_engineering
+  - feature_engineering_config
 - Stopping Criteria:
   - max_evals
   - timeout_in_seconds
@@ -95,9 +107,19 @@
   - batch_size
   - precision
   - fast_cycle
-  - turbo
-  - bumper
-  - autodiff_backend
+    - turbo
+    - bumper
+    - autodiff_backend
+    - search_surrogate_enabled
+    - search_surrogate_model
+    - search_surrogate_warmup_evals
+    - search_surrogate_true_eval_fraction
+    - search_surrogate_exploration_fraction
+    - search_surrogate_uncertainty_scale
+    - search_surrogate_reject_margin
+    - search_surrogate_probe_size
+    - search_surrogate_neighbors
+    - search_surrogate_max_samples
 - Determinism:
   - random_state
   - deterministic
