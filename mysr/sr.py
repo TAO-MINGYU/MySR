@@ -982,11 +982,12 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         expressions, sorted by loss.
         Default is `0.982`.
     parent_selection : Literal["tournament", "epsilon_lexicase"]
-        Parent-selection policy. ``"tournament"`` preserves the default
-        scalar-cost tournament; ``"epsilon_lexicase"`` selects parents from
-        per-case errors for built-in losses, including uncertainty-aware
-        presets, when batching and custom aggregate objectives are disabled.
-        Default is ``"tournament"``.
+        Parent-selection policy. ``"epsilon_lexicase"`` is the current
+        default and selects parents from per-case errors for built-in losses,
+        including uncertainty-aware presets, when batching and custom
+        aggregate objectives are disabled. ``"tournament"`` remains available
+        as an explicit scalar-cost policy. Unsupported objectives safely fall
+        back to tournament selection at runtime.
     survival_strategy : Literal[
         "regularized_evolution", "age_fitness_pareto", "competitive_age_fitness"
     ]
@@ -995,7 +996,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         Age-Fitness Pareto survival to parent and offspring candidates;
         ``"competitive_age_fitness"`` first compares each child with its parent,
         then applies age-fitness survival with structural duplicate suppression.
-        Default is ``"regularized_evolution"``.
+        Default is ``"age_fitness_pareto"``.
     parallelism: Literal["serial", "multithreading", "multiprocessing"] | None
         Parallelism to use for the search. Can be `"serial"`, `"multithreading"`, or `"multiprocessing"`.
         Default is `"multithreading"`.
@@ -1420,10 +1421,10 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         probability_negate_constant: float = 0.00743,
         tournament_selection_n: int = 15,
         tournament_selection_p: float = 0.982,
-        parent_selection: Literal["tournament", "epsilon_lexicase"] = "tournament",
+        parent_selection: Literal["tournament", "epsilon_lexicase"] = "epsilon_lexicase",
         survival_strategy: Literal[
             "regularized_evolution", "age_fitness_pareto", "competitive_age_fitness"
-        ] = "regularized_evolution",
+        ] = "age_fitness_pareto",
         parallelism: (
             Literal["serial", "multithreading", "multiprocessing"] | None
         ) = None,

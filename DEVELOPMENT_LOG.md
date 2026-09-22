@@ -447,3 +447,14 @@
 - 影响路径：`mysr/sr.py`、`mysr/param_groupings.yml`、`mysr/test/test_population_migration.py`。
 - 验证：使用 env_1_mysr Python 3.11.15、临时 Julia project/depot 指向对应 MySRCore worktree，population migration focused tests 4 passed，`compileall` 与 `git diff --check` 通过。
 - Unknown：未运行完整 Python 405 项套件或 matched benchmark。
+
+## 2026-09-22 - Align Python defaults with MySRCore v2 policy
+
+- **Decision**：`MySRRegressor()` 默认使用 `parent_selection="epsilon_lexicase"` 和
+  `survival_strategy="age_fitness_pareto"`；显式旧策略仍通过参数校验和 Julia bridge 保留。
+- **Fallback**：backend 在 batching 或不可拆分 custom objective 下继续安全回退 tournament，
+  Python 文档明确说明 requested/effective 可能不同。
+- **Verification**：策略、population migration、uncertainty focused tests `10 passed`；
+  default backend smoke 确认 Python 与 Julia Options 均收到 lexicase + AFP；`compileall` 和
+  `git diff --check` 通过。
+- **Unknown**：完整 Python 405 项套件与 matched P/M benchmark 尚未运行。
