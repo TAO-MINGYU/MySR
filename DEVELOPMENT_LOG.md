@@ -439,3 +439,11 @@
 - **Verification**：隔离 Julia project/depot 指向本 worktree backend 时，新增前端测试
   `2 passed`；backend competitive survival + uncertainty/surrogate serial smoke 成功。
 - **Unknown**：新策略的真实搜索质量、evaluations 和耗时仍需 matched benchmark。
+
+## 2026-09-22 - Population profile quota bridge
+
+- 变更类型：Python public API 与 Julia bridge 同步。
+- Decision：新增 `population_profile_groups`，profile mapping 增加正 `share`，share 总和必须为 1；旧 `population_profiles` 继续支持。移除 `migration_topology`，保留 `migration_policy` 并将其语义限定为同 profile 组内候选筛选。
+- 影响路径：`mysr/sr.py`、`mysr/param_groupings.yml`、`mysr/test/test_population_migration.py`。
+- 验证：使用 env_1_mysr Python 3.11.15、临时 Julia project/depot 指向对应 MySRCore worktree，population migration focused tests 4 passed，`compileall` 与 `git diff --check` 通过。
+- Unknown：未运行完整 Python 405 项套件或 matched benchmark。

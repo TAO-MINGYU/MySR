@@ -559,6 +559,11 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         mapping; with ``migration_policy="best_plus_novelty"``, zero target
         columns in an explicit matrix are treated as migration-incompatible.
         Provide exactly one profile per population. Default is `None`.
+    population_profile_groups : sequence of mappings
+        Optional profile quota definitions. Each mapping uses the same profile
+        fields as ``population_profiles`` plus a positive ``share``. Shares
+        must sum to one; MySRCore assigns populations with the largest-
+        remainder rule. This cannot be combined with ``population_profiles``.
     population_size : int
         Number of individuals in each population.
         Default is `27`.
@@ -927,15 +932,12 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         Whether to migrate.  Default is `True`.
     hof_migration : bool
         Whether to have the hall of fame migrate.  Default is `True`.
-    migration_topology : {"pooled", "ring"}
-        Migration candidate topology. ``"pooled"`` preserves the historical
-        all-population pool; ``"ring"`` sends candidates from the predecessor
-        population to the current population. Default is ``"pooled"``.
     migration_policy : {"best_only", "best_plus_novelty"}
-        Candidate selection policy. ``"best_only"`` preserves the historical
-        best-subpopulation pool; ``"best_plus_novelty"`` keeps the lowest-cost
-        representative of each structure and applies explicit profile
-        affinity compatibility masks. Default is ``"best_only"``.
+        Candidate selection policy within the target population's profile
+        group. ``"best_only"`` samples the source best subpopulation;
+        ``"best_plus_novelty"`` keeps the lowest-cost representative of each
+        structure and applies profile affinity compatibility masks. Default is
+        ``"best_only"``.
     topn : int
         How many top individuals migrate from each population.
         Default is `12`.
@@ -1309,6 +1311,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         niterations: int = 100,
         populations: int = 31,
         population_profiles: Sequence[Mapping[str, Any]] | None = None,
+        population_profile_groups: Sequence[Mapping[str, Any]] | None = None,
         population_size: int = 27,
         max_evals: int | None = None,
         maxsize: int = 30,
@@ -1404,7 +1407,6 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         skip_mutation_failures: bool = True,
         migration: bool = True,
         hof_migration: bool = True,
-        migration_topology: Literal["pooled", "ring"] = "pooled",
         migration_policy: Literal["best_only", "best_plus_novelty"] = "best_only",
         topn: int = 12,
         should_simplify: bool = True,
@@ -1488,6 +1490,19 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         self.type_spec = type_spec
         self.niterations = niterations
         self.populations = populations
+        profile_fields = {
+            "id",
+            "role",
+            "operator_preference_strength",
+            "operator_affinity",
+            "mutation_weights",
+            "crossover_weights",
+            "exploration_floor",
+        }
+        if population_profiles is not None and population_profile_groups is not None:
+            raise ValueError(
+                "population_profiles and population_profile_groups cannot be used together"
+            )
         if population_profiles is not None:
             if isinstance(population_profiles, (str, bytes)):
                 raise TypeError("population_profiles must be a sequence of mappings")
@@ -1504,15 +1519,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 normalized = dict(profile)
                 normalized.setdefault("id", f"population_{index}")
                 normalized.setdefault("role", "generalist")
-                unsupported = set(normalized) - {
-                    "id",
-                    "role",
-                    "operator_preference_strength",
-                    "operator_affinity",
-                    "mutation_weights",
-                    "crossover_weights",
-                    "exploration_floor",
-                }
+                unsupported = set(normalized) - profile_fields
                 if unsupported:
                     names = ", ".join(sorted(map(str, unsupported)))
                     raise ValueError(
@@ -1520,7 +1527,61 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                     )
                 normalized_profiles.append(normalized)
             population_profiles = normalized_profiles
+        elif population_profile_groups is not None:
+            if isinstance(population_profile_groups, (str, bytes)):
+                raise TypeError("population_profile_groups must be a sequence of mappings")
+            normalized_groups: list[dict[str, Any]] = []
+            seen_ids: set[str] = set()
+            for index, group in enumerate(population_profile_groups, start=1):
+                if not isinstance(group, Mapping):
+                    raise TypeError(
+                        f"population_profile_groups[{index - 1}] must be a mapping"
+                    )
+                normalized = dict(group)
+                normalized.setdefault("id", f"profile_{index}")
+                normalized.setdefault("role", "generalist")
+                unsupported = set(normalized) - (profile_fields | {"share"})
+                if unsupported:
+                    names = ", ".join(sorted(map(str, unsupported)))
+                    raise ValueError(
+                        f"Unsupported population profile group field(s): {names}"
+                    )
+                if "share" not in normalized:
+                    raise ValueError(
+                        f"population_profile_groups[{index - 1}] must define share"
+                    )
+                try:
+                    share = float(normalized["share"])
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(
+                        f"population_profile_groups[{index - 1}].share must be numeric"
+                    ) from exc
+                if not np.isfinite(share) or share <= 0:
+                    raise ValueError(
+                        f"population_profile_groups[{index - 1}].share must be finite and positive"
+                    )
+                normalized["share"] = share
+                profile_id = str(normalized["id"])
+                if profile_id in seen_ids:
+                    raise ValueError("population profile group ids must be unique")
+                seen_ids.add(profile_id)
+                normalized_groups.append(normalized)
+            if not normalized_groups:
+                raise ValueError("population_profile_groups must not be empty")
+            if not np.isclose(
+                sum(group["share"] for group in normalized_groups),
+                1.0,
+                rtol=1e-10,
+                atol=1e-10,
+            ):
+                raise ValueError("population profile group shares must sum to 1.0")
+            if int(populations) < len(normalized_groups):
+                raise ValueError(
+                    "populations must be at least the number of population profile groups"
+                )
+            population_profile_groups = normalized_groups
         self.population_profiles = population_profiles
+        self.population_profile_groups = population_profile_groups
         self.population_size = population_size
         self.ncycles_per_iteration = ncycles_per_iteration
         # - Equation Constraints
@@ -1605,9 +1666,6 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         # -- Migration parameters
         self.migration = migration
         self.hof_migration = hof_migration
-        if migration_topology not in {"pooled", "ring"}:
-            raise ValueError("migration_topology must be 'pooled' or 'ring'")
-        self.migration_topology = migration_topology
         if migration_policy not in {"best_only", "best_plus_novelty"}:
             raise ValueError(
                 "migration_policy must be 'best_only' or 'best_plus_novelty'"
@@ -3591,9 +3649,14 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             else {}
         )
         population_migration_options: dict[str, Any] = {}
-        if self.population_profiles is not None:
+        if self.population_profiles is not None or self.population_profile_groups is not None:
             julia_profiles = []
-            for profile in self.population_profiles:
+            profile_entries = (
+                self.population_profiles
+                if self.population_profiles is not None
+                else self.population_profile_groups
+            )
+            for profile in profile_entries:
                 profile_options: dict[str, Any] = {
                     "id": jl.Symbol(str(profile["id"])),
                     "role": jl.Symbol(str(profile["role"])),
@@ -3638,12 +3701,20 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                             for matrix in matrices
                         ]
                     )
-                julia_profiles.append(SymbolicRegression.IslandProfile(**profile_options))
-            population_migration_options["population_profiles"] = jl_array(julia_profiles)
-        if self.migration_topology != "pooled":
-            population_migration_options["migration_topology"] = jl.Symbol(
-                self.migration_topology
-            )
+                julia_profile = SymbolicRegression.IslandProfile(**profile_options)
+                if self.population_profile_groups is not None:
+                    julia_profiles.append(
+                        SymbolicRegression.PopulationProfileGroup(
+                            julia_profile, float(profile["share"])
+                        )
+                    )
+                else:
+                    julia_profiles.append(julia_profile)
+            population_migration_options[
+                "population_profile_groups"
+                if self.population_profile_groups is not None
+                else "population_profiles"
+            ] = jl_array(julia_profiles)
         if self.migration_policy != "best_only":
             population_migration_options["migration_policy"] = jl.Symbol(
                 self.migration_policy
