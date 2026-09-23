@@ -16,7 +16,7 @@ from functools import wraps
 from io import StringIO
 from multiprocessing import cpu_count
 from pathlib import Path
-from typing import Any, Literal, Union, cast
+from typing import Any, Literal, cast
 
 import numpy as np
 import pandas as pd
@@ -2177,7 +2177,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             return None
         self._define_julia_expression_types()
         return cast(
-            Union[tuple[VectorValue, AnyValue], None],
+            tuple[VectorValue, AnyValue] | None,
             jl_deserialize(stream),
         )
 

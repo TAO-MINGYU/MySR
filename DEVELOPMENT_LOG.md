@@ -518,3 +518,14 @@
   `1/8/1/4`，`rnn_gpsr_cycles` 冲突检查 alias 仍保留。
 - **限制**：未运行完整 Python 405 项套件或 matched P/M benchmark，因此不对总体性能收益
   作结论。
+
+## 2026-09-23 - AFE quality audit on updated canonical code
+
+- **范围**：从当前 canonical `main@44447a8` 建立 paired worktree，保留既有 AFE、RNN-GPSR
+  和 Core child-refinement 提交，复查 AFE replay、HOF lineage 和 Python-to-Julia bridge。
+- **质量修复**：`julia_state_` 的返回类型改用 PEP 604 union，移除 `sr.py` 中不再需要的
+  `Union` 导入，清除 Ruff `UP007`。
+- **验证**：AFE、量纲和 RNN-GPSR focused tests `139 passed, 10 skipped`；population
+  migration 与 survival tests `7 passed`；目标文件 Ruff、编译和 `git diff --check` 通过。
+- **边界**：未改变 AFE 候选生成、自动注入或 Julia wire contract；完整 Python 405 项和
+  matched P/M benchmark 仍未运行。
