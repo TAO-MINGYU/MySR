@@ -504,3 +504,17 @@
 
 - **Follow-up**：canonical default-policy changes were merged into this feature worktree before validation. The parameter grouping manifest was completed for the existing loss, uncertainty, feature-engineering, affinity, and search-surrogate parameters exposed by the current constructor.
 - **Verification**：RNN-GPSR, population migration, and dimensional bridge tests passed (`84 passed`); the parameter grouping completeness test passed (`1 passed`); `python -m compileall -q mysr` and `git diff --check` passed.
+
+## 2026-09-23 - RNN-GPSR quality pass on updated canonical code
+
+- **范围**：从当前 canonical `main@fa76ba6` 重新建立 paired worktree，复查 AFE →
+  RNN-GPSR → lightweight GPSR 的参数转发、默认值、诊断和兼容 alias；保留本地已有的
+  AFE 与 default-policy 更新，未发现需要新的 Python bridge 改动。
+- **验证**：使用临时 Julia project 指向同步的 MySRCore quality worktree，运行 AFE、
+  RNN-GPSR、量纲、population migration、survival strategy focused suites，共 `156 passed`；
+  `python -m compileall -q mysr` 与 `git diff --check` 作为收口检查。
+- **后端联动**：本轮修复位于 MySRCore child refinement 的异常预算 accounting；Python
+  API 与 wire contract 保持兼容，RNN-GPSR 四项 lightweight budget defaults 仍为
+  `1/8/1/4`，`rnn_gpsr_cycles` 冲突检查 alias 仍保留。
+- **限制**：未运行完整 Python 405 项套件或 matched P/M benchmark，因此不对总体性能收益
+  作结论。
