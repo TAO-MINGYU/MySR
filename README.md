@@ -128,6 +128,24 @@ model = MySRRegressor(
 
 The current evidence for these extensions comes from focused synthetic tests. This README does not claim that MySR outperforms PySR.
 
+### Search selection and child refinement
+
+MySR exposes the corresponding MySRCore controls for epsilon-lexicase
+selection and bounded refinement of newly generated children. The defaults are
+adaptive MAD epsilon handling and `child_refinement="safe"`; use
+`child_refinement="none"` to preserve the historical timing or
+`"thorough"` when the configured optimizer budget should be used. Absolute and
+relative epsilon thresholds require an explicit `epsilon` value:
+
+```python
+model = MySRRegressor(
+    parent_selection="epsilon_lexicase",
+    epsilon=0.1,
+    epsilon_mode="absolute",
+    child_refinement="safe",
+)
+```
+
 ### Optional RNN-GPSR seeding
 
 RNN-GPSR is an optional initial-population proposal mechanism. It does not replace the formal MySRCore search, and every sampled expression is checked again by MySRCore before it can enter the search:

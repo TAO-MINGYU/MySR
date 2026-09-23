@@ -71,6 +71,8 @@
     - tournament_selection_n
     - tournament_selection_p
     - parent_selection
+    - epsilon
+    - epsilon_mode
     - survival_strategy
   - Constant Optimization:
     - optimizer_algorithm
@@ -79,6 +81,7 @@
     - optimize_probability
     - optimizer_iterations
     - should_optimize_constants
+    - child_refinement
   - Migration between Populations:
     - fraction_replaced
     - fraction_replaced_hof

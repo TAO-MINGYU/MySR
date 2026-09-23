@@ -959,6 +959,12 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     should_optimize_constants : bool
         Whether to numerically optimize constants (Nelder-Mead/Newton)
         at the end of each iteration. Default is `True`.
+    child_refinement : Literal["none", "safe", "thorough"]
+        How to refine a newly generated child before it enters the
+        evolutionary acceptance gate. ``"safe"`` uses a bounded optimizer
+        and semantics-preserving simplification; ``"thorough"`` uses the
+        configured optimizer budget; ``"none"`` preserves the historical
+        evaluate-then-optimize timing. Default is ``"safe"``.
     optimizer_algorithm : str
         Optimization scheme to use for optimizing constants. Can currently
         be `NelderMead` or `BFGS`.
@@ -1000,6 +1006,14 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         aggregate objectives are disabled. ``"tournament"`` remains available
         as an explicit scalar-cost policy. Unsupported objectives safely fall
         back to tournament selection at runtime.
+    epsilon : float | None
+        Optional epsilon threshold for epsilon-lexicase selection. With
+        ``epsilon_mode="mad"`` this is a floor for the adaptive MAD threshold;
+        the other modes use the value directly. Default is `None`.
+    epsilon_mode : Literal["mad", "absolute", "relative"]
+        Epsilon-lexicase threshold mode. ``"mad"`` uses the adaptive backend
+        default; ``"absolute"`` and ``"relative"`` require ``epsilon``.
+        Default is ``"mad"``.
     survival_strategy : Literal[
         "regularized_evolution", "age_fitness_pareto", "competitive_age_fitness"
     ]
@@ -1429,6 +1443,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         topn: int = 12,
         should_simplify: bool = True,
         should_optimize_constants: bool = True,
+        child_refinement: Literal["none", "safe", "thorough"] = "safe",
         optimizer_algorithm: Literal["BFGS", "NelderMead"] = "BFGS",
         optimizer_nrestarts: int = 2,
         optimizer_f_calls_limit: int | None = None,
@@ -1439,6 +1454,8 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         tournament_selection_n: int = 15,
         tournament_selection_p: float = 0.982,
         parent_selection: Literal["tournament", "epsilon_lexicase"] = "epsilon_lexicase",
+        epsilon: float | None = None,
+        epsilon_mode: Literal["mad", "absolute", "relative"] = "mad",
         survival_strategy: Literal[
             "regularized_evolution", "age_fitness_pareto", "competitive_age_fitness"
         ] = "age_fitness_pareto",
@@ -1740,6 +1757,7 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         self.topn = topn
         # -- Constants parameters
         self.should_optimize_constants = should_optimize_constants
+        self.child_refinement = child_refinement
         self.optimizer_algorithm = optimizer_algorithm
         self.optimizer_nrestarts = optimizer_nrestarts
         self.optimizer_f_calls_limit = optimizer_f_calls_limit
@@ -1751,6 +1769,8 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         self.tournament_selection_n = tournament_selection_n
         self.tournament_selection_p = tournament_selection_p
         self.parent_selection = parent_selection
+        self.epsilon = epsilon
+        self.epsilon_mode = epsilon_mode
         self.survival_strategy = survival_strategy
         # -- Performance parameters
         self.parallelism = parallelism
@@ -2506,14 +2526,34 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 # Neither operators nor binary/unary specified, use defaults
                 pass
             # If binary_operators or unary_operators is specified, that's fine
-        if self.tournament_selection_n > self.population_size:
+        if self.tournament_selection_n >= self.population_size:
             raise ValueError(
                 "`tournament_selection_n` parameter must be smaller than `population_size`."
+            )
+        if self.child_refinement not in ("none", "safe", "thorough"):
+            raise ValueError(
+                "`child_refinement` must be 'none', 'safe', or 'thorough'."
             )
         if self.parent_selection not in ("tournament", "epsilon_lexicase"):
             raise ValueError(
                 "`parent_selection` must be 'tournament' or 'epsilon_lexicase'."
             )
+        if self.epsilon_mode not in ("mad", "absolute", "relative"):
+            raise ValueError(
+                "`epsilon_mode` must be 'mad', 'absolute', or 'relative'."
+            )
+        if self.epsilon is None:
+            if self.epsilon_mode != "mad":
+                raise ValueError(
+                    "`epsilon` is required when `epsilon_mode` is not 'mad'."
+                )
+        else:
+            try:
+                epsilon = float(self.epsilon)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("`epsilon` must be finite and non-negative.") from exc
+            if not np.isfinite(epsilon) or epsilon < 0:
+                raise ValueError("`epsilon` must be finite and non-negative.")
         if self.survival_strategy not in (
             "regularized_evolution",
             "age_fitness_pareto",
@@ -3752,6 +3792,16 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             if self.search_surrogate_enabled
             else {}
         )
+        selection_options: dict[str, Any] = {}
+        if self.epsilon is not None:
+            selection_options["epsilon"] = float(self.epsilon)
+        if self.epsilon_mode != "mad":
+            selection_options["epsilon_mode"] = jl.Symbol(self.epsilon_mode)
+        child_refinement_options = (
+            {"child_refinement": jl.Symbol(self.child_refinement)}
+            if self.child_refinement != "safe"
+            else {}
+        )
         population_migration_options: dict[str, Any] = {}
         if self.population_profiles is not None or self.population_profile_groups is not None:
             julia_profiles = []
@@ -3850,7 +3900,8 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             student_nu=float(self.student_nu),
             maxsize=int(self.maxsize),
             output_directory=_escape_filename(self.output_directory_),
-            npopulations=int(self.populations),
+            populations=int(self.populations),
+            population_size=int(self.population_size),
             batching=(
                 jl.Symbol(self.batching)
                 if isinstance(self.batching, str)
@@ -3883,7 +3934,6 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             use_frequency=self.use_frequency,
             use_frequency_in_tournament=self.use_frequency_in_tournament,
             adaptive_parsimony_scaling=self.adaptive_parsimony_scaling,
-            npop=self.population_size,
             ncycles_per_iteration=self.ncycles_per_iteration,
             fraction_replaced=self.fraction_replaced,
             fraction_replaced_guesses=self.fraction_replaced_guesses,
@@ -3908,6 +3958,8 @@ class MySRRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             define_helper_functions=False,
             **backend_formula_options,
             **mutation_affinity_options,
+            **selection_options,
+            **child_refinement_options,
             **search_surrogate_options,
             **population_migration_options,
             **rnn_gpsr_options,

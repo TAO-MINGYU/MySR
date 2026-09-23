@@ -529,3 +529,10 @@
   migration 与 survival tests `7 passed`；目标文件 Ruff、编译和 `git diff --check` 通过。
 - **边界**：未改变 AFE 候选生成、自动注入或 Julia wire contract；完整 Python 405 项和
   matched P/M benchmark 仍未运行。
+
+## 2026-09-23 — MySRCore bridge contract quality pass
+
+- 范围：paired worktree `contract-quality-20260923`，对齐 Python 公共参数与 MySRCore v1.1.3 Options 契约。
+- 变更：新增 `child_refinement`、`epsilon`、`epsilon_mode` 的 Python 参数、校验、文档、参数分组与 bridge 回归；bridge 改用 canonical `populations`/`population_size`，并保留默认值下的可选关键字兼容路径；`tournament_selection_n` 提前执行严格小于 `population_size` 校验。
+- 验证：MySRCore 完整 `Pkg.test("MySRCore"; coverage=false)` 通过；MySR Python 契约/量纲/迁移/survival/uncertainty focused suite `43 passed`；新增 bridge/survival suite `15 passed`；全量 Python 测试收集 `432 tests collected`；目标文件 Ruff、compileall 与 `git diff --check` 通过。
+- 限制：完整 Python suite 未完成；`test_main.py` 中既有 plugin 测试在临时 project 使用 `using SymbolicRegression` 失败，因为当前 fork 暴露的是 `MySRCore.SymbolicRegression`，不属于本次变更；matched P/M benchmark 未运行。
