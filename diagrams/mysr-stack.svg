@@ -1,28 +1,32 @@
+<?xml version="1.0" ?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 330" role="img" aria-labelledby="title desc">
   <title id="title">MySR architecture</title>
-  <desc id="desc">MySR Python interface connects to the MySRCore Julia search core, which produces a Pareto frontier and exportable expressions.</desc>
+  <desc id="desc">Product architecture and package boundaries.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
-      <path d="M0 0L10 5L0 10Z" fill="#1947D1"/>
+      <path d="M0 0L10 5L0 10Z" fill="#1769E0"/>
     </marker>
   </defs>
-  <rect width="1280" height="330" fill="#FFFFFF"/>
+  <rect width="1280" height="330" fill="#F6F9FE"/>
   <g font-family="Avenir Next, Inter, Helvetica, Arial, sans-serif">
-    <rect x="50" y="70" width="320" height="150" rx="6" fill="#FFFFFF" stroke="#12161C" stroke-width="3"/>
-    <rect x="480" y="70" width="320" height="150" rx="6" fill="#FFFFFF" stroke="#12161C" stroke-width="3"/>
-    <rect x="910" y="70" width="320" height="150" rx="6" fill="#FFFFFF" stroke="#12161C" stroke-width="3"/>
-    <path d="M370 145H466" fill="none" stroke="#1947D1" stroke-width="4" marker-end="url(#arrow)"/>
-    <path d="M800 145H896" fill="none" stroke="#1947D1" stroke-width="4" marker-end="url(#arrow)"/>
-    <text x="82" y="119" fill="#1947D1" font-size="17" font-weight="700" letter-spacing="2">PYTHON FRONTEND</text>
-    <text x="82" y="164" fill="#12161C" font-size="38" font-weight="700">MySR</text>
-    <text x="82" y="195" fill="#687384" font-size="17">API, data preparation, exports</text>
-    <text x="512" y="119" fill="#1947D1" font-size="17" font-weight="700" letter-spacing="2">JULIA SEARCH CORE</text>
-    <text x="512" y="164" fill="#12161C" font-size="34" font-weight="700">MySRCore.jl</text>
-    <text x="512" y="195" fill="#687384" font-size="17">Evolution, constraints, evaluation</text>
-    <text x="942" y="119" fill="#1947D1" font-size="17" font-weight="700" letter-spacing="2">RESULTS</text>
-    <text x="942" y="164" fill="#12161C" font-size="31" font-weight="700">HOF / exports</text>
-    <text x="942" y="195" fill="#687384" font-size="17">Equations, predictions, insight</text>
-    <path d="M50 269H1230" fill="none" stroke="#D9DEE7" stroke-width="2" stroke-dasharray="8 10"/>
-    <text x="50" y="302" fill="#687384" font-size="16">Optional extensions: dimensional workflows, automated feature engineering, and RNN-GPSR seeding.</text>
+    <rect x="50" y="78" width="320" height="150" rx="18" fill="#FFFFFF" stroke="#1769E0" stroke-width="3"/>
+    <rect x="50" y="78" width="8" height="150" rx="4" fill="#1769E0"/>
+    <text x="78" y="126" fill="#1769E0" font-family="Avenir Next, Inter, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" letter-spacing="2">PYTHON FRONTEND</text>
+    <text x="78" y="169" fill="#142033" font-family="Avenir Next, Inter, Helvetica, Arial, sans-serif" font-size="30" font-weight="700">MySR</text>
+    <text x="78" y="201" fill="#607089" font-family="Avenir Next, Inter, Helvetica, Arial, sans-serif" font-size="16">API, data preparation, exports</text>
+    <rect x="480" y="78" width="320" height="150" rx="18" fill="#FFFFFF" stroke="#7B3FE4" stroke-width="3"/>
+    <rect x="480" y="78" width="8" height="150" rx="4" fill="#7B3FE4"/>
+    <text x="508" y="126" fill="#7B3FE4" font-family="Avenir Next, Inter, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" letter-spacing="2">JULIA SEARCH CORE</text>
+    <text x="508" y="169" fill="#142033" font-family="Avenir Next, Inter, Helvetica, Arial, sans-serif" font-size="30" font-weight="700">MySRCore.jl</text>
+    <text x="508" y="201" fill="#607089" font-family="Avenir Next, Inter, Helvetica, Arial, sans-serif" font-size="16">Evolution, constraints, evaluation</text>
+    <rect x="910" y="78" width="320" height="150" rx="18" fill="#FFFFFF" stroke="#F4A340" stroke-width="3"/>
+    <rect x="910" y="78" width="8" height="150" rx="4" fill="#F4A340"/>
+    <text x="938" y="126" fill="#F4A340" font-family="Avenir Next, Inter, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" letter-spacing="2">RESULTS</text>
+    <text x="938" y="169" fill="#142033" font-family="Avenir Next, Inter, Helvetica, Arial, sans-serif" font-size="27" font-weight="700">HOF / exports</text>
+    <text x="938" y="201" fill="#607089" font-family="Avenir Next, Inter, Helvetica, Arial, sans-serif" font-size="16">Equations, predictions, insight</text>
+    <path d="M370 153H466" fill="none" stroke="#1769E0" stroke-width="4" marker-end="url(#arrow)"/>
+    <path d="M800 153H896" fill="none" stroke="#1769E0" stroke-width="4" marker-end="url(#arrow)"/>
+    <path d="M35 278H1245" fill="none" stroke="#C9D9F4" stroke-width="2" stroke-dasharray="8 10"/>
+    <text x="35" y="313" fill="#607089" font-size="16">Optional extensions: dimensional workflows, automated feature engineering, and RNN-GPSR seeding.</text>
   </g>
 </svg>

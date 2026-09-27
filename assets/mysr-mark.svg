@@ -1,11 +1,13 @@
+<?xml version="1.0" ?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-labelledby="title desc">
-  <title id="title">MySR symbol</title>
-  <desc id="desc">An open search orbit crossed by a compact symbolic relation curve.</desc>
+  <title id="title">MySR data-to-equation mark</title>
+  <desc id="desc">Three data rows flow into an inspectable symbolic curve.</desc>
   <g fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M45 148C35 112 54 75 93 56C133 36 180 44 199 76C217 107 199 149 164 176C130 202 78 199 53 172" stroke="#12161C" stroke-width="8"/>
-    <path d="M51 145C75 119 92 111 112 120C130 128 142 143 159 128C174 115 186 97 199 77" stroke="#1947D1" stroke-width="9"/>
+    <rect x="32" y="40" width="102" height="112" rx="22" fill="#EAF2FF" stroke="#1769E0" stroke-width="7"/>
+    <path d="M54 74h53M54 101h66M54 128h39" stroke="#F4A340" stroke-width="10"/>
+    <path d="M94 176C117 176 126 147 145 147C163 147 166 166 181 148C192 135 199 110 209 75" stroke="#1769E0" stroke-width="10"/>
   </g>
-  <circle cx="51" cy="145" r="8" fill="#1947D1"/>
-  <circle cx="112" cy="120" r="7" fill="#12161C"/>
-  <circle cx="199" cy="77" r="8" fill="#1947D1"/>
+  <circle cx="95" cy="176" r="9" fill="#F4A340"/>
+  <circle cx="145" cy="147" r="8" fill="#142033"/>
+  <circle cx="209" cy="75" r="9" fill="#F4A340"/>
 </svg>

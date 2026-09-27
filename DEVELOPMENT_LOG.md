@@ -569,3 +569,10 @@
 - 变更：新增 `child_refinement`、`epsilon`、`epsilon_mode` 的 Python 参数、校验、文档、参数分组与 bridge 回归；bridge 改用 canonical `populations`/`population_size`，并保留默认值下的可选关键字兼容路径；`tournament_selection_n` 提前执行严格小于 `population_size` 校验。
 - 验证：MySRCore 完整 `Pkg.test("MySRCore"; coverage=false)` 通过；MySR Python 契约/量纲/迁移/survival/uncertainty focused suite `43 passed`；新增 bridge/survival suite `15 passed`；全量 Python 测试收集 `432 tests collected`；目标文件 Ruff、compileall 与 `git diff --check` 通过。
 - 限制：完整 Python suite 未完成；`test_main.py` 中既有 plugin 测试在临时 project 使用 `using SymbolicRegression` 失败，因为当前 fork 暴露的是 `MySRCore.SymbolicRegression`，不属于本次变更；matched P/M benchmark 未运行。
+
+## 2026-09-27 — Separate MySR visual identity assets
+
+- Updated the public presentation layer only: MySR now uses a cobalt/amber data-to-equation identity for the Python frontend.
+- Added `mysr-mark.svg`, `mysr-lockup.svg`, three reusable English icons (`mysr-icon-data.svg`, `mysr-icon-equation.svg`, `mysr-icon-pipeline.svg`), refreshed social/result previews, and a color-coded architecture diagram.
+- Added the icon row to the README and documented the palette and asset roles in `assets/README.md`.
+- Synthetic result previews remain explicitly marked as non-benchmark illustrations; no runtime or API contract changed.

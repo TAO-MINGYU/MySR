@@ -101,6 +101,14 @@ The figure shows the shape of an inspectable result: equations remain visible
 alongside loss and complexity so a user can choose a point on the frontier.
 The values are synthetic and are not benchmark evidence.
 
+<div align="center">
+  <img src="assets/mysr-icon-data.svg" alt="MySR data intake" width="108">
+  <img src="assets/mysr-icon-equation.svg" alt="MySR equation inspection" width="108">
+  <img src="assets/mysr-icon-pipeline.svg" alt="MySR reproducible pipeline" width="108">
+</div>
+
+<p align="center"><sub>Data intake&nbsp;&nbsp;·&nbsp;&nbsp;Equation inspection&nbsp;&nbsp;·&nbsp;&nbsp;Reproducible workflow</sub></p>
+
 ## Capabilities
 
 | Area | What MySR provides |
