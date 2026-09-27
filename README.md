@@ -9,6 +9,7 @@
   </p>
   <p>
     <a href="#quickstart">Quickstart</a>&nbsp;&middot;&nbsp;
+    <a href="#result-preview">Result preview</a>&nbsp;&middot;&nbsp;
     <a href="#capabilities">Capabilities</a>&nbsp;&middot;&nbsp;
     <a href="#architecture">Architecture</a>&nbsp;&middot;&nbsp;
     <a href="#development">Development</a>
@@ -89,6 +90,16 @@ predictions = model.predict(X)
 ```
 
 After fitting, `model.equations_` exposes the discovered equation frontier, while `predict`, `sympy`, `jax`, and `pytorch` provide practical ways to reuse the selected or indexed expressions.
+
+## Result preview
+
+<div align="center">
+  <img src="assets/result-preview.svg" alt="Illustrative MySR equation frontier with complexity, loss, equations, and a Pareto view" width="960">
+</div>
+
+The figure shows the shape of an inspectable result: equations remain visible
+alongside loss and complexity so a user can choose a point on the frontier.
+The values are synthetic and are not benchmark evidence.
 
 ## Capabilities
 
