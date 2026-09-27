@@ -6,6 +6,15 @@
 
 后续重大变更至少记录：日期、变更类型、影响范围、原因、修改路径、结果/验证证据、遗留风险和后续行动。
 
+## 2026-09-27 - Refresh public GitHub page entry points
+
+- 变更类型：README 页面信息架构与公开路径清理。
+- 影响范围：`README.md`。
+- Decision：在 Overview 后增加 MySR/MySRCore 入口对照和 MySR 1.1.3 的兼容后端说明；开发目录改为公开可复现的 sibling-checkout 示例。
+- 结果：页面首屏同时说明 Python frontend 与 Julia search core 的职责，保留现有 opt-in/evidence 边界和 provenance 文案。
+- 验证：README 图片路径存在、SVG XML 解析通过、无内部路径、`git diff --check` 通过；未修改运行时代码。
+- 遗留风险：GitHub 实际浅色/深色/窄屏渲染仍需发布前检查。
+
 ## 2026-09-04 - 建立文件夹级说明与日志约定
 
 - 变更类型：结构与工作流规范化。

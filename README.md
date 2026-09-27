@@ -30,6 +30,16 @@ predictions = model.predict(X)
 
 The Python frontend is backed by [MySRCore.jl](https://github.com/TAO-MINGYU/MySRCore.jl), a Julia search core responsible for expression evolution, evaluation, constraints, constant optimization, and the Hall of Fame (HOF) / Pareto frontier.
 
+> **Current release:** MySR `1.1.3` installs the compatible MySRCore `v1.1.3`
+> automatically through JuliaPkg. The backend also has a separate direct Julia
+> release channel; see [MySRCore.jl](https://github.com/TAO-MINGYU/MySRCore.jl)
+> when you need low-level Julia control.
+
+| Choose MySR when you want | Choose MySRCore.jl when you want |
+| --- | --- |
+| A Python and scikit-learn-style workflow | Direct Julia access to the search engine |
+| Data preparation, prediction replay, and exports | Expression trees, custom search options, and HOF/Pareto results |
+
 ## Why MySR?
 
 - **Readable results**: search for equations that expose structure, not only predictive scores.
@@ -197,7 +207,7 @@ For the upstream project and its algorithmic background, see [PySR](https://gith
 The development workspace contains two independently released repositories:
 
 ```text
-/home/taomingyu/MySR_Dev/
+MySR/
 |-- MySR/          # Python frontend
 |-- MySRCore.jl/  # Julia search core
 `-- Benchmark_mysr/
