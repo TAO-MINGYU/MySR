@@ -576,3 +576,9 @@
 - Added `mysr-mark.svg`, `mysr-lockup.svg`, three reusable English icons (`mysr-icon-data.svg`, `mysr-icon-equation.svg`, `mysr-icon-pipeline.svg`), refreshed social/result previews, and a color-coded architecture diagram.
 - Added the icon row to the README and documented the palette and asset roles in `assets/README.md`.
 - Synthetic result previews remain explicitly marked as non-benchmark illustrations; no runtime or API contract changed.
+
+## 2026-09-27 — Adopt MySRCore public product name
+
+- Replaced public `MySRCore.jl` branding with `MySRCore` in README, architecture copy, provenance, package URL metadata, JuliaPkg URL, and development test fixtures.
+- Updated the MySR social preview to use `CORE-BACKED` language and the new MySRCore repository URL; technical `using MySRCore` and upstream attribution remain intact.
+- No Python runtime behavior changed; the focused JuliaPkg configuration contract test was run standalone and passed (2 tests).
