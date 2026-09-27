@@ -36,18 +36,18 @@ RUN python3 -c 'import json; pkg = json.load(open("/mysr/mysr/juliapkg.json", "r
 # Remove any = or ^ or ~ from the version:
 RUN cat /mysr/sr_version | sed 's/[\^=~]//g' > /mysr/sr_version_processed
 
-# Now, we check out the version of MySRCore.jl that MySR is using:
+# Now, we check out the version of MySRCore that MySR is using:
 # If sr_version starts with 'v', use it as-is; otherwise prepend 'v'
 RUN if grep -q '^v' /mysr/sr_version_processed; then \
-        git clone -b "$(cat /mysr/sr_version_processed)" --single-branch https://github.com/TAO-MINGYU/MySRCore.jl /srjl; \
+        git clone -b "$(cat /mysr/sr_version_processed)" --single-branch https://github.com/TAO-MINGYU/MySRCore /srjl; \
     else \
-        git clone -b "v$(cat /mysr/sr_version_processed)" --single-branch https://github.com/TAO-MINGYU/MySRCore.jl /srjl; \
+        git clone -b "v$(cat /mysr/sr_version_processed)" --single-branch https://github.com/TAO-MINGYU/MySRCore /srjl; \
     fi
 
 # Edit the retained SymbolicRegression module to create a new function:
 RUN sed -i 's/module SymbolicRegression/module SymbolicRegression\n__test_function() = 2.3/' /srjl/src/SymbolicRegression.jl
 
-# Edit MySR to use the custom version of MySRCore.jl:
+# Edit MySR to use the custom version of MySRCore:
 ADD ./mysr/test/generate_dev_juliapkg.py /generate_dev_juliapkg.py
 RUN python3 /generate_dev_juliapkg.py /mysr/mysr/juliapkg.json /srjl
 

@@ -22,7 +22,7 @@ def generate_dev_config(juliapkg_json: Path, path_to_mysrcore: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Use a local MySRCore.jl checkout instead of the pinned release."
+        description="Use a local MySRCore checkout instead of the pinned release."
     )
     parser.add_argument("juliapkg_json", type=Path)
     parser.add_argument("path_to_mysrcore", type=Path)

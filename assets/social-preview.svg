@@ -20,7 +20,7 @@
   <rect x="254" y="504" width="160" height="36" rx="18" fill="#FFFFFF" stroke="#C9D9F4"/>
   <text x="264" y="527" fill="#1769E0" font-family="Lato, Arial, sans-serif" font-size="12" font-weight="700" letter-spacing="1">SCIKIT-LEARN</text>
   <rect x="430" y="504" width="160" height="36" rx="18" fill="#FFFFFF" stroke="#C9D9F4"/>
-  <text x="440" y="527" fill="#1769E0" font-family="Lato, Arial, sans-serif" font-size="12" font-weight="700" letter-spacing="1">JULIA-BACKED</text>
+  <text x="440" y="527" fill="#1769E0" font-family="Lato, Arial, sans-serif" font-size="12" font-weight="700" letter-spacing="1">CORE-BACKED</text>
   <text x="884" y="96" fill="#1769E0" font-family="Lato, Arial, sans-serif" font-size="14" font-weight="700" letter-spacing="2">MY PIPELINE</text>
   <text x="884" y="218" fill="#142033" font-family="DejaVu Sans Mono, monospace" font-size="21">fit(X, y) -&gt; f(x)</text>
   <text x="884" y="258" fill="#607089" font-family="DejaVu Sans Mono, monospace" font-size="17">features -&gt; search -&gt; predict</text>

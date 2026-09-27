@@ -1,7 +1,7 @@
 <div align="center">
   <img src="assets/mysr-lockup.svg" alt="MySR" width="560">
   <p><strong>A Python interface for interpretable symbolic regression.</strong><br>
-  Powered by a Julia search core for discovering compact, inspectable equations.</p>
+  Powered by a dedicated search core for discovering compact, inspectable equations.</p>
   <p>
     <a href="https://github.com/TAO-MINGYU/MySR/releases"><img src="https://img.shields.io/github/v/release/TAO-MINGYU/MySR?display_name=tag&style=flat-square&label=release" alt="Latest release"></a>
     <a href="https://github.com/TAO-MINGYU/MySR/blob/main/LICENSE"><img src="https://img.shields.io/github/license/TAO-MINGYU/MySR?style=flat-square" alt="Apache 2.0 license"></a>
@@ -29,16 +29,16 @@ model.fit(X, y)
 predictions = model.predict(X)
 ```
 
-The Python frontend is backed by [MySRCore.jl](https://github.com/TAO-MINGYU/MySRCore.jl), a Julia search core responsible for expression evolution, evaluation, constraints, constant optimization, and the Hall of Fame (HOF) / Pareto frontier.
+The Python frontend is backed by [MySRCore](https://github.com/TAO-MINGYU/MySRCore), a search core responsible for expression evolution, evaluation, constraints, constant optimization, and the Hall of Fame (HOF) / Pareto frontier.
 
 > **Current release:** MySR `1.1.3` installs the compatible MySRCore `v1.1.3`
 > automatically through JuliaPkg. The backend also has a separate direct Julia
-> release channel; see [MySRCore.jl](https://github.com/TAO-MINGYU/MySRCore.jl)
-> when you need low-level Julia control.
+> release channel; see [MySRCore](https://github.com/TAO-MINGYU/MySRCore)
+> when you need low-level search control.
 
-| Choose MySR when you want | Choose MySRCore.jl when you want |
+| Choose MySR when you want | Choose MySRCore when you want |
 | --- | --- |
-| A Python and scikit-learn-style workflow | Direct Julia access to the search engine |
+| A Python and scikit-learn-style workflow | Direct access to the search engine |
 | Data preparation, prediction replay, and exports | Expression trees, custom search options, and HOF/Pareto results |
 
 ## Why MySR?
@@ -56,7 +56,7 @@ Install the current released package directly from GitHub:
 python -m pip install "git+https://github.com/TAO-MINGYU/MySR.git@v1.1.3"
 ```
 
-Julia dependencies are resolved automatically through JuliaPkg on first import. The released configuration pins the compatible `MySRCore.jl` version, so users do not need to check out the Julia repository separately.
+Backend dependencies are resolved automatically through JuliaPkg on first import. The released configuration pins the compatible `MySRCore` version, so users do not need to check out the backend repository separately.
 
 Verify the Python entry point:
 
@@ -204,13 +204,13 @@ model = MySRRegressor(
 ## Architecture
 
 <div align="center">
-  <img src="diagrams/mysr-stack.svg" alt="MySR architecture: Python frontend, Julia search core, and equation results" width="900">
+  <img src="diagrams/mysr-stack.svg" alt="MySR architecture: Python frontend, search core, and equation results" width="900">
 </div>
 
-MySR keeps the user-facing orchestration in Python and the search authority in MySRCore.jl:
+MySR keeps the user-facing orchestration in Python and the search authority in MySRCore:
 
 - **MySR** handles data preparation, configuration, feature proposals, prediction replay, and exports.
-- **MySRCore.jl** handles expression generation, evolution, loss evaluation, dimensional legality, constant optimization, and HOF maintenance.
+- **MySRCore** handles expression generation, evolution, loss evaluation, dimensional legality, constant optimization, and HOF maintenance.
 - **Results** are exposed as equations, predictions, and exportable representations for downstream analysis.
 
 ## Relationship to PySR
@@ -228,7 +228,7 @@ The development workspace contains two independently released repositories:
 ```text
 MySR/
 |-- MySR/          # Python frontend
-|-- MySRCore.jl/  # Julia search core
+|-- MySRCore/  # search core
 `-- Benchmark_mysr/
 ```
 

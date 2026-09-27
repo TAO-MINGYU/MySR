@@ -35,7 +35,7 @@ mysr = "mysr._cli.main:mysr"
 [project.urls]
 Homepage = "https://github.com/TAO-MINGYU/MySR"
 Repository = "https://github.com/TAO-MINGYU/MySR"
-Backend = "https://github.com/TAO-MINGYU/MySRCore.jl"
+Backend = "https://github.com/TAO-MINGYU/MySRCore"
 
 [project.optional-dependencies]
 rnn = [
