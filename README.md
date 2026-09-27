@@ -227,6 +227,12 @@ The matched PySR/MySR benchmark suite lives in the independent [Benchmark_mysr](
 
 MySR 1.1.3 is research software under active development. The core package and released MySRCore backend are usable; new feature-engineering and RNN-GPSR paths remain opt-in and should be evaluated against the intended dataset and search budget before being used for scientific conclusions.
 
+## Citation
+
+For software citations, use the metadata in [CITATION.cff](CITATION.cff).
+MySR preserves upstream attribution and explains the relationship to PySR in
+[NOTICE](NOTICE), [VENDORING.md](VENDORING.md), and [FORK_CHANGES.md](FORK_CHANGES.md).
+
 ## License
 
 MySR is released under the [Apache License 2.0](https://github.com/TAO-MINGYU/MySR/blob/main/LICENSE). It is an independent project and is not an official release of PySR or SymbolicRegression.jl.

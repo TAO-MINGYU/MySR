@@ -6,6 +6,14 @@
 
 后续重大变更至少记录：日期、变更类型、影响范围、原因、修改路径、结果/验证证据、遗留风险和后续行动。
 
+## 2026-09-27 - Add citation metadata to the public page
+
+- 变更类型：发布元数据与 README 导航补充。
+- 影响范围：`CITATION.cff`、`README.md`。
+- Decision：为 MySR 1.1.3 增加标准 Citation File Format 元数据，并在 README 提供引用入口；保留 PySR 上游 provenance 文件链接。
+- 验证：CFF YAML 解析和版本/许可证/仓库字段检查通过；未修改 Python 运行时代码。
+- 遗留风险：正式发布前仍需由作者确认引用作者顺序和 preferred citation 形式。
+
 ## 2026-09-27 - Refresh public GitHub page entry points
 
 - 变更类型：README 页面信息架构与公开路径清理。

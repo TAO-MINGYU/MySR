@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use MySR in research or software, please cite this release."
+title: "MySR: interpretable symbolic regression in Python"
+abstract: >-
+  MySR is a Python interface for interpretable symbolic regression, backed by
+  the MySRCore Julia search engine.
+authors:
+  - family-names: Tao
+    given-names: Mingyu
+  - family-names: Cranmer
+    given-names: Miles
+version: "1.1.3"
+license: Apache-2.0
+repository-code: "https://github.com/TAO-MINGYU/MySR"
+url: "https://github.com/TAO-MINGYU/MySR"
+keywords:
+  - symbolic regression
+  - equation discovery
+  - scientific machine learning
+  - interpretable machine learning
+  - Python
+  - Julia
